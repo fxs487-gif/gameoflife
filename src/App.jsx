@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { SpeedInsights } from '@vercel/speed-insights/react';
 import {
   BaselineRevealScreen,
   CommitmentCheckScreen,
@@ -1127,5 +1128,10 @@ export default function App() {
     }
   }
 
-  return <div className={getFrameClassName(currentScreen, frameStatus)}>{renderScreen()}</div>;
+  return (
+    <>
+      <div className={getFrameClassName(currentScreen, frameStatus)}>{renderScreen()}</div>
+      <SpeedInsights />
+    </>
+  );
 }
