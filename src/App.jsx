@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { Analytics } from '@vercel/analytics/react';
 import {
   BaselineRevealScreen,
   CommitmentCheckScreen,
@@ -1127,5 +1128,10 @@ export default function App() {
     }
   }
 
-  return <div className={getFrameClassName(currentScreen, frameStatus)}>{renderScreen()}</div>;
+  return (
+    <>
+      <div className={getFrameClassName(currentScreen, frameStatus)}>{renderScreen()}</div>
+      <Analytics />
+    </>
+  );
 }
