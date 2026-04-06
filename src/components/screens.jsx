@@ -207,23 +207,44 @@ export function LoginScreen({ onSubmit }) {
   return (
     <ScreenShell
       eyebrow="Begin"
-      title="A daily system for seeing how your day actually plays out."
-      subtitle="Start with your name. Your objectives and reviews will stay on this device for now."
+      title="Play your day. See what actually shapes your life."
+      subtitle="Most people try to improve their lives without ever seeing what's really shaping them. This helps you see it &mdash; clearly &mdash; and adjust in real time."
+      className="entry-shell"
     >
-      <form className="stack-lg" onSubmit={handleSubmit}>
-        <div className="stack-sm">
-          <FieldLabel>What should we call you?</FieldLabel>
-          <TextInput
-            value={name}
-            onChange={setName}
-            placeholder="Your name"
-          />
+      <div className="stack-xl">
+        <div className="pattern-panel quiet-pattern-panel entry-panel">
+          <div className="stack-sm">
+            <p className="pattern-title">How it works</p>
+            <div className="pattern-list">
+              <p className="pattern-item">Set what matters today</p>
+              <p className="pattern-item">See what actually shaped your day</p>
+              <p className="pattern-item">Make one small adjustment that sticks</p>
+            </div>
+          </div>
+
+          <p className="entry-tone">
+            No fluff. No streak pressure. Just honest feedback - and better
+            decisions.
+          </p>
         </div>
 
-        <button className="primary-button" type="submit">
-          Enter
-        </button>
-      </form>
+        <form className="stack-lg" onSubmit={handleSubmit}>
+          <div className="stack-sm">
+            <FieldLabel helper="Your name stays on this device for now.">
+              What should we call you?
+            </FieldLabel>
+            <TextInput
+              value={name}
+              onChange={setName}
+              placeholder="Your name"
+            />
+          </div>
+
+          <button className="primary-button" type="submit">
+            Start your day
+          </button>
+        </form>
+      </div>
     </ScreenShell>
   );
 }
@@ -232,6 +253,7 @@ export function HomeScreen({
   name,
   momentum,
   trend = null,
+  energy = { score: 0, max: 10, filledSegments: 0 },
   trendDetailLine = '',
   comparisonLine = '',
   objectives = [],
@@ -245,6 +267,10 @@ export function HomeScreen({
   onViewHistory,
 }) {
   const hasObjectives = objectives.length > 0;
+  const energySegments = Array.from(
+    { length: 10 },
+    (_, index) => index < energy.filledSegments,
+  );
   const stateCardClassName = `pattern-panel dashboard-card dashboard-state-card ${
     trend ? `trend-${trend.state.toLowerCase()}` : `status-${momentum.status.toLowerCase().trim()}`
   }`;
@@ -271,6 +297,28 @@ export function HomeScreen({
           </div>
           <p className="dashboard-state-headline">{stateHeadline}</p>
           <p className="pattern-body">{stateSubtext}</p>
+          <div
+            className="dashboard-energy"
+            aria-label={`Life energy ${energy.score} out of ${energy.max}`}
+          >
+            <div className="alignment-copy-row">
+              <p className="alignment-label">Life energy</p>
+              <p className="dashboard-energy-score">
+                {energy.score} / {energy.max}
+              </p>
+            </div>
+            <div className="alignment-meter alignment-meter-hero" aria-hidden="true">
+              {energySegments.map((filled, index) => (
+                <span
+                  key={index}
+                  className={`alignment-segment ${filled ? 'is-filled' : ''}`.trim()}
+                  style={{ '--segment-index': index }}
+                >
+                  <span className="alignment-segment-fill" />
+                </span>
+              ))}
+            </div>
+          </div>
           {trendDetailLine ? <p className="quiet-line">{trendDetailLine}</p> : null}
           {comparisonLine ? <p className="quiet-line">{comparisonLine}</p> : null}
         </div>
@@ -704,6 +752,13 @@ export function ObjectiveOutcomeScreen({ name, objectives = [], onSubmit }) {
   );
   const { score, completed, partially, missed } = getObjectiveCounts(objectiveStates);
   const maxScore = objectiveStates.length * 2;
+  const alignmentRatio = maxScore ? score / maxScore : 0;
+  const evaluationStatus =
+    alignmentRatio >= 0.75 ? 'architect-led' : alignmentRatio >= 0.4 ? 'mixed' : 'pulled';
+  const evaluationSegments = Array.from(
+    { length: 10 },
+    (_, index) => index < Math.max(0, Math.min(10, Math.round(alignmentRatio * 10))),
+  );
   const allScored =
     objectiveStates.length > 0 &&
     objectiveStates.every((objective) => Boolean(objective.outcome));
@@ -769,11 +824,33 @@ export function ObjectiveOutcomeScreen({ name, objectives = [], onSubmit }) {
       subtitle="Call each one clearly before you interpret the day."
     >
       <form className="stack-xl" onSubmit={handleSubmit}>
-        <div className="pattern-panel">
-          <p className="pattern-title">Today's alignment</p>
-          <p className="pattern-item">
+        <div className={`status-panel objective-evaluation-panel status-${evaluationStatus}`}>
+          <p className="pattern-title">Life energy</p>
+          <p className="objective-evaluation-score">
             {score} / {maxScore}
           </p>
+          <div
+            className="alignment-block objective-evaluation-meter"
+            aria-label={`Life energy ${score} out of ${maxScore}`}
+          >
+            <div className="alignment-copy-row">
+              <p className="alignment-label">Day control</p>
+              <p className="alignment-score">
+                {Math.max(1, Math.min(10, Math.round(alignmentRatio * 10)))} / 10
+              </p>
+            </div>
+            <div className="alignment-meter" aria-hidden="true">
+              {evaluationSegments.map((filled, index) => (
+                <span
+                  key={index}
+                  className={`alignment-segment ${filled ? 'is-filled' : ''}`.trim()}
+                  style={{ '--segment-index': index }}
+                >
+                  <span className="alignment-segment-fill" />
+                </span>
+              ))}
+            </div>
+          </div>
           <p className="quiet-line">
             {completed} did it, {partially} some progress, {missed} not at all
           </p>
@@ -1791,15 +1868,15 @@ export function CompleteScreen({
         <div className={`status-panel result-moment status-${dayStatus.toLowerCase()}`}>
           <p className="result-headline">{dayStatusHeadline}</p>
           <span className={`status-tag status-${dayStatus.toLowerCase()}`}>{dayStatus}</span>
-          <div
-            className="alignment-block"
-            aria-label={`Alignment ${alignment.score} out of ${alignment.max}`}
-          >
-            <div className="alignment-copy-row">
-              <p className="alignment-label">Today's alignment</p>
-              <p className="alignment-score">
-                {alignment.score} / {alignment.max}
-              </p>
+            <div
+              className="alignment-block"
+              aria-label={`Day control ${alignment.score} out of ${alignment.max}`}
+            >
+              <div className="alignment-copy-row">
+                <p className="alignment-label">Day control</p>
+                <p className="alignment-score">
+                  {alignment.score} / {alignment.max}
+                </p>
             </div>
             <div className="alignment-meter" aria-hidden="true">
               {segments.map((filled, index) => (
