@@ -1,3 +1,4 @@
+[README.md](https://github.com/user-attachments/files/26501104/README.md)
 # Game of Life
 
 A mobile-first React MVP for daily self-reflection.
