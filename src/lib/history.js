@@ -674,6 +674,33 @@ export function getMomentumSummary(entries, limit = 3) {
   return `You've been in control ${architectLedCount} of the last ${recentEntries.length} days.`;
 }
 
+export function getRecentAlignmentSummary(entries, limit = 3) {
+  const recentEntries = getReviewableEntries(entries).slice(0, limit);
+
+  if (recentEntries.length === 0) {
+    return {
+      score: 0,
+      max: 10,
+      ratio: 0,
+      filledSegments: 0,
+    };
+  }
+
+  const averageRatio =
+    recentEntries.reduce((total, entry) => {
+      const alignment = getAlignmentMetrics(entry);
+      return total + (alignment.max ? alignment.score / alignment.max : 0);
+    }, 0) / recentEntries.length;
+  const score = Math.max(1, Math.min(10, Math.round(averageRatio * 10)));
+
+  return {
+    score,
+    max: 10,
+    ratio: averageRatio,
+    filledSegments: getFilledSegments(averageRatio, score),
+  };
+}
+
 export function getHistoryDescription(entry) {
   const { total, completedCount, slippedCount } = getObjectiveSummary(entry);
   if (entry.noSignificantChallenges) {
