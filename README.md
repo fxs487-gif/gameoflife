@@ -1,4 +1,4 @@
-# Game of Life 
+# Game of Life
 
 A mobile-first React MVP for daily self-reflection.
 
