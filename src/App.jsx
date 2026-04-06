@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useLayoutEffect, useMemo, useState } from 'react';
 import {
   BaselineRevealScreen,
   CommitmentCheckScreen,
@@ -54,6 +54,7 @@ import {
   getIdentityTrend,
   getHomeStateSummary,
   getMomentumSummary,
+  getRecentAlignmentSummary,
   getHistoryDescription,
   getObjectiveSummary,
   getPatternSummary,
@@ -318,6 +319,7 @@ export default function App() {
   const patternSummary = getPatternSummary(reviewableEntries);
   const homeStateSummary = getHomeStateSummary(state.entries);
   const identityTrend = getIdentityTrend(state.entries);
+  const recentAlignment = getRecentAlignmentSummary(state.entries);
   const repeatedOtherPattern = getRepeatedOtherPattern(reviewableEntries);
   const currentOtherPattern = getRepeatedOtherPattern(state.entries);
   const flowScreen = getFlowScreen({
@@ -433,10 +435,41 @@ export default function App() {
       ? 'Start reflection'
       : 'Continue today';
   const frameStatus = currentScreen === 'home' ? homeStateSummary.status : todayStatus;
+  const navigationKey = useMemo(
+    () =>
+      [
+        currentScreen,
+        currentScreen === 'recent-day-detail' ? selectedHistoryDateKey || 'none' : 'base',
+        currentScreen === 'recent-days' ? reviewableEntries.length : 'stable',
+        currentScreen === 'complete' ? todayEntry.completedAt || 'open' : 'flowing',
+        todayKey,
+      ].join(':'),
+    [
+      currentScreen,
+      reviewableEntries.length,
+      selectedHistoryDateKey,
+      todayEntry.completedAt,
+      todayKey,
+    ],
+  );
 
-  useEffect(() => {
-    window.scrollTo(0, 0);
-  }, [currentScreen]);
+  useLayoutEffect(() => {
+    const resetScroll = () => {
+      window.scrollTo(0, 0);
+      document.documentElement.scrollTop = 0;
+      document.body.scrollTop = 0;
+    };
+
+    resetScroll();
+
+    const animationFrame = window.requestAnimationFrame(() => {
+      resetScroll();
+    });
+
+    return () => {
+      window.cancelAnimationFrame(animationFrame);
+    };
+  }, [navigationKey]);
 
   useEffect(() => {
     if (!state.user?.name || !state.user.onboardingCompletedAt || !baselineSummary.isReady) {
@@ -813,6 +846,7 @@ export default function App() {
             name={state.user.name}
             momentum={homeStateSummary}
             trend={homeTrend}
+            energy={recentAlignment}
             trendDetailLine={homeTrend ? homeStateSummary.subtext : ''}
             comparisonLine={homeComparisonLine}
             objectives={getObjectiveLabels(todayObjectives)}
@@ -1127,5 +1161,11 @@ export default function App() {
     }
   }
 
-  return <div className={getFrameClassName(currentScreen, frameStatus)}>{renderScreen()}</div>;
+  return (
+    <div className={getFrameClassName(currentScreen, frameStatus)}>
+      <div key={navigationKey} className="screen-transition-layer">
+        {renderScreen()}
+      </div>
+    </div>
+  );
 }
