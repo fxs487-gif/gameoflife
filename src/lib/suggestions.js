@@ -162,6 +162,35 @@ function createOtherFactorsDisplay(note = '') {
   };
 }
 
+function createEnjoymentDisplay(signal = '', note = '') {
+  const normalizedSignal = signal.trim();
+  const rawNote = note.trim();
+
+  if (normalizedSignal && normalizedSignal !== 'Other' && rawNote) {
+    return {
+      text: normalizedSignal,
+      isRawInput: true,
+      label: normalizedSignal,
+      note: rawNote,
+    };
+  }
+
+  if (normalizedSignal && normalizedSignal !== 'Other') {
+    return createDisplayValue(normalizedSignal);
+  }
+
+  if (rawNote) {
+    return {
+      text: rawNote,
+      isRawInput: true,
+      label: 'What felt right:',
+      note: rawNote,
+    };
+  }
+
+  return createDisplayValue('');
+}
+
 export function getDistractionLabel(distraction, note = '') {
   if (isOtherFactors(distraction)) {
     return formatOtherFactors(note);
@@ -236,6 +265,17 @@ export function getSuccessFactorLabel(successFactor, note = '') {
   return successFactor;
 }
 
+export function getEnjoymentLabel(signal = '', note = '') {
+  const normalizedSignal = signal.trim();
+  const rawNote = note.trim();
+
+  if (normalizedSignal && normalizedSignal !== 'Other') {
+    return normalizedSignal;
+  }
+
+  return rawNote;
+}
+
 export function getDistractionDisplay(distraction, note = '') {
   if (isOtherFactors(distraction)) {
     return createOtherFactorsDisplay(note);
@@ -258,6 +298,10 @@ export function getSuccessFactorDisplay(successFactor, note = '') {
   }
 
   return createDisplayValue(successFactor);
+}
+
+export function getEnjoymentDisplay(signal = '', note = '') {
+  return createEnjoymentDisplay(signal, note);
 }
 
 export function getSupportPlanLabel(strategy, customText = '') {

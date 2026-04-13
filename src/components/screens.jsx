@@ -3,14 +3,40 @@ import ScreenShell from './ScreenShell.jsx';
 import {
   COMMITMENT_WINDOWS,
   DISTRACTION_OPTIONS,
+  ENJOYMENT_SIGNAL_OPTIONS,
   EMOTION_OPTIONS,
+  LENS_RATING_OPTIONS,
   MORNING_SUPPORT_OPTIONS,
+  OBJECTIVE_BENEFIT_CUSTOM_OPTION,
+  OBJECTIVE_BENEFIT_OPTIONS,
+  OBJECTIVE_LENS_OPTIONS,
   OBJECTIVE_SECTIONS,
   SUCCESS_REFLECTION_OPTIONS,
   TIME_OPTIONS,
 } from '../options.js';
 
 const MAX_OBJECTIVES = 6;
+const DEFAULT_OBJECTIVE_LENSES = ['Deployment'];
+const LENS_CARD_CONFIGS = [
+  {
+    key: 'deployment',
+    label: 'Deployment',
+    tone: 'deployment',
+    helper: 'Showing up',
+  },
+  {
+    key: 'enjoyment',
+    label: 'Enjoyment',
+    tone: 'enjoyment',
+    helper: 'Feels right',
+  },
+  {
+    key: 'fulfillment',
+    label: 'Fulfillment',
+    tone: 'fulfillment',
+    helper: 'Matters',
+  },
+];
 const STARTING_POINT_OPTIONS = [
   'In control',
   'Pulled in different directions',
@@ -85,14 +111,75 @@ function slugify(value) {
   return value.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '');
 }
 
-function buildObjective(label, section, custom = false, outcome = '') {
+function normalizeObjectiveLenses(lenses = []) {
+  const normalized = Array.isArray(lenses)
+    ? [...new Set(lenses.filter(Boolean))]
+    : [];
+
+  return normalized.length > 0 ? normalized : [...DEFAULT_OBJECTIVE_LENSES];
+}
+
+function normalizeObjectiveOutcomes(outcomes = []) {
+  return Array.isArray(outcomes)
+    ? [...new Set(outcomes.map((value) => value?.trim?.()).filter(Boolean))]
+    : [];
+}
+
+function getPresetObjectiveOutcomes(outcomes = []) {
+  return normalizeObjectiveOutcomes(outcomes).filter((outcome) =>
+    OBJECTIVE_BENEFIT_OPTIONS.includes(outcome),
+  );
+}
+
+function getCustomObjectiveOutcome(outcomes = []) {
+  return (
+    normalizeObjectiveOutcomes(outcomes).find(
+      (outcome) => !OBJECTIVE_BENEFIT_OPTIONS.includes(outcome),
+    ) ?? ''
+  );
+}
+
+function buildObjective(
+  label,
+  section,
+  custom = false,
+  outcome = '',
+  lenses = DEFAULT_OBJECTIVE_LENSES,
+  fulfillmentRating = '',
+  enjoymentRating = '',
+  outcomes = [],
+) {
   return {
     id: `${custom ? 'custom' : slugify(section)}-${slugify(label)}`,
     label,
     section,
     custom,
+    outcomes: normalizeObjectiveOutcomes(outcomes),
     outcome,
+    lenses: normalizeObjectiveLenses(lenses),
+    fulfillmentRating,
+    enjoymentRating,
   };
+}
+
+function getLensRatingPoints(rating) {
+  if (rating === 'High') {
+    return 2;
+  }
+
+  if (rating === 'Medium') {
+    return 1;
+  }
+
+  return 0;
+}
+
+function getTenPointScore(score, maxScore) {
+  if (!maxScore) {
+    return 0;
+  }
+
+  return Math.max(0, Math.round((score / maxScore) * 10));
 }
 
 function getObjectiveCounts(objectives) {
@@ -108,6 +195,9 @@ function getObjectiveCounts(objectives) {
         counts.missed += 1;
       }
 
+      counts.fulfillmentScore += getLensRatingPoints(objective.fulfillmentRating);
+      counts.enjoymentScore += getLensRatingPoints(objective.enjoymentRating);
+
       return counts;
     },
     {
@@ -115,6 +205,8 @@ function getObjectiveCounts(objectives) {
       completed: 0,
       partially: 0,
       missed: 0,
+      fulfillmentScore: 0,
+      enjoymentScore: 0,
     },
   );
 }
@@ -151,6 +243,99 @@ function OutcomeTag({ status }) {
     <span className={`outcome-tag outcome-${status.toLowerCase()}`.trim()}>
       {label}
     </span>
+  );
+}
+
+function LensTagList({ lenses = [] }) {
+  const normalizedLenses = normalizeObjectiveLenses(lenses);
+
+  return (
+    <div className="lens-tag-list">
+      {normalizedLenses.map((lens) => (
+        <span key={lens} className={`lens-tag lens-${lens.toLowerCase()}`.trim()}>
+          {lens}
+        </span>
+      ))}
+    </div>
+  );
+}
+
+function MetricScore({ score, max, className = '' }) {
+  return (
+    <span className={`metric-score ${className}`.trim()}>
+      <span className="metric-score-value">{score}</span>
+      <span className="metric-score-divider">/</span>
+      <span className="metric-score-max">{max}</span>
+    </span>
+  );
+}
+
+function BenefitTagList({ outcomes = [], className = '' }) {
+  const normalizedOutcomes = normalizeObjectiveOutcomes(outcomes);
+
+  if (normalizedOutcomes.length === 0) {
+    return null;
+  }
+
+  return (
+    <div className={`benefit-tag-list ${className}`.trim()}>
+      {normalizedOutcomes.map((outcome) => (
+        <span key={outcome} className="benefit-tag">
+          {outcome}
+        </span>
+      ))}
+    </div>
+  );
+}
+
+function DefMetricCard({
+  label,
+  score,
+  max = 10,
+  filledSegments = 0,
+  tone,
+  helper = '',
+  className = '',
+}) {
+  const segments = Array.from({ length: 10 }, (_, index) => index < filledSegments);
+
+  return (
+    <div className={`def-metric-card ${className} lens-${tone}`.trim()}>
+      <div className="def-metric-header">
+        <p className="def-metric-label">{label}</p>
+      </div>
+      <div className="def-metric-meta">
+        <p className="def-metric-helper">{helper}</p>
+        <MetricScore score={score} max={max} className="def-metric-score" />
+      </div>
+      <div className="def-metric-meter" aria-hidden="true">
+        {segments.map((filled, index) => (
+          <span
+            key={index}
+            className={`def-metric-segment ${filled ? 'is-filled' : ''}`.trim()}
+          />
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function LensScoreGrid({ metrics, className = '' }) {
+  return (
+    <div className={`lens-score-grid ${className}`.trim()}>
+      {LENS_CARD_CONFIGS.map(({ key, label, tone, helper }) => (
+        <DefMetricCard
+          key={key}
+          label={label}
+          score={metrics[key].score}
+          max={metrics[key].max}
+          filledSegments={metrics[key].filledSegments}
+          tone={tone}
+          helper={helper}
+          className="lens-score-block"
+        />
+      ))}
+    </div>
   );
 }
 
@@ -191,6 +376,177 @@ function DisplayValueList({ items = [], className, rawClassName = '' }) {
   );
 }
 
+function LifeAlignmentBar({
+  alignment = { score: 0, max: 10, filledSegments: 0 },
+  label = 'Life Alignment',
+  className = '',
+  meterClassName = '',
+}) {
+  const segments = Array.from(
+    { length: 10 },
+    (_, index) => index < alignment.filledSegments,
+  );
+
+  return (
+    <div
+      className={`alignment-block life-alignment-bar ${className}`.trim()}
+      aria-label={`${label} ${alignment.score} out of ${alignment.max}`}
+    >
+      <div className="alignment-copy-row">
+        <p className="alignment-label">{label}</p>
+        <MetricScore
+          score={alignment.score}
+          max={alignment.max}
+          className="alignment-score"
+        />
+      </div>
+      <div className={`alignment-meter ${meterClassName}`.trim()} aria-hidden="true">
+        {segments.map((filled, index) => (
+          <span
+            key={index}
+            className={`alignment-segment ${filled ? 'is-filled' : ''}`.trim()}
+            style={{ '--segment-index': index }}
+          >
+            <span className="alignment-segment-fill" />
+          </span>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+export function LandingPageScreen({ onEnterApp }) {
+  function scrollToHowItWorks() {
+    document.getElementById('landing-how-it-works')?.scrollIntoView({
+      behavior: 'smooth',
+      block: 'start',
+    });
+  }
+
+  return (
+    <main className="screen-shell landing-shell">
+      <section className="pattern-panel landing-hero-card">
+        <div className="stack-lg">
+          <div className="stack-sm">
+            <p className="landing-brand">Game of Life</p>
+            <h1 className="landing-headline">
+              Play your day. See what actually shapes your life.
+            </h1>
+            <p className="landing-subtitle">
+              Game of Life helps you understand how your day really played out,
+              what pulled you off course, and what to change tomorrow.
+            </p>
+          </div>
+
+          <div className="button-stack landing-hero-actions">
+            <button className="primary-button" type="button" onClick={onEnterApp}>
+              Enter the app
+            </button>
+            <button
+              className="secondary-button"
+              type="button"
+              onClick={scrollToHowItWorks}
+            >
+              See how it works
+            </button>
+          </div>
+        </div>
+      </section>
+
+      <section id="landing-how-it-works" className="landing-section">
+        <h2 className="landing-section-title">How it works</h2>
+        <div className="landing-grid landing-steps-grid">
+          <article className="pattern-panel landing-step-card">
+            <span className="landing-step-number">01</span>
+            <p className="landing-step-text">Set what matters today</p>
+          </article>
+          <article className="pattern-panel landing-step-card">
+            <span className="landing-step-number">02</span>
+            <p className="landing-step-text">See how the day actually played out</p>
+          </article>
+          <article className="pattern-panel landing-step-card">
+            <span className="landing-step-number">03</span>
+            <p className="landing-step-text">
+              Make one adjustment that helps tomorrow go better
+            </p>
+          </article>
+        </div>
+      </section>
+
+      <section className="landing-section">
+        <h2 className="landing-section-title">Why Game of Life</h2>
+        <div className="pattern-panel landing-story-card">
+          <p className="landing-section-body">
+            Most people try to improve without ever seeing what&apos;s really
+            shaping their behavior. Game of Life gives you honest, structured
+            feedback so you can stop guessing and start improving on purpose.
+          </p>
+        </div>
+      </section>
+
+      <section className="landing-section">
+        <h2 className="landing-section-title">What you&apos;ll see</h2>
+        <div className="landing-grid landing-preview-grid">
+          <article className="pattern-panel landing-preview-card">
+            <p className="landing-preview-text">
+              A clear picture of what shaped your day
+            </p>
+          </article>
+          <article className="pattern-panel landing-preview-card">
+            <p className="landing-preview-text">Patterns that repeat over time</p>
+          </article>
+          <article className="pattern-panel landing-preview-card">
+            <p className="landing-preview-text">
+              One next step grounded in what actually happened
+            </p>
+          </article>
+        </div>
+      </section>
+
+      <section className="landing-section">
+        <div className="pattern-panel landing-final-panel">
+          <div className="stack-sm">
+            <h2 className="landing-final-title">Ready to see your day clearly?</h2>
+          </div>
+          <button className="primary-button" type="button" onClick={onEnterApp}>
+            Start your day
+          </button>
+        </div>
+      </section>
+    </main>
+  );
+}
+
+export function IntroPromiseScreen({ onContinue }) {
+  return (
+    <ScreenShell
+      eyebrow="Begin"
+      title="See how your day actually plays out"
+      subtitle="Most people try to improve without ever seeing what's really shaping their behavior."
+      className="entry-shell intro-promise-shell"
+    >
+      <div className="stack-xl">
+        <div className="pattern-panel quiet-pattern-panel entry-panel">
+          <div className="stack-sm">
+            <p className="pattern-title">This helps you</p>
+            <div className="pattern-list">
+              <p className="pattern-item">See what actually pulled your attention</p>
+              <p className="pattern-item">Understand where your time really went</p>
+              <p className="pattern-item">Make one small adjustment for tomorrow</p>
+            </div>
+          </div>
+
+          <p className="intro-payoff">So you can start improving on purpose.</p>
+        </div>
+
+        <button className="primary-button" type="button" onClick={onContinue}>
+          Start your day
+        </button>
+      </div>
+    </ScreenShell>
+  );
+}
+
 export function LoginScreen({ onSubmit }) {
   const [name, setName] = useState('');
 
@@ -207,44 +563,26 @@ export function LoginScreen({ onSubmit }) {
   return (
     <ScreenShell
       eyebrow="Begin"
-      title="Play your day. See what actually shapes your life."
-      subtitle="Most people try to improve their lives without ever seeing what's really shaping them. This helps you see it &mdash; clearly &mdash; and adjust in real time."
-      className="entry-shell"
+      title="What's your name?"
+      subtitle="We'll keep your progress on this device so you can pick up where you left off."
+      className="login-shell"
     >
-      <div className="stack-xl">
-        <div className="pattern-panel quiet-pattern-panel entry-panel">
-          <div className="stack-sm">
-            <p className="pattern-title">How it works</p>
-            <div className="pattern-list">
-              <p className="pattern-item">Set what matters today</p>
-              <p className="pattern-item">See what actually shaped your day</p>
-              <p className="pattern-item">Make one small adjustment that sticks</p>
-            </div>
-          </div>
-
-          <p className="entry-tone">
-            No fluff. No streak pressure. Just honest feedback - and better
-            decisions.
-          </p>
+      <form className="stack-lg" onSubmit={handleSubmit}>
+        <div className="stack-sm">
+          <FieldLabel helper="Your name stays on this device for now.">
+            What should we call you?
+          </FieldLabel>
+          <TextInput
+            value={name}
+            onChange={setName}
+            placeholder="Your name"
+          />
         </div>
 
-        <form className="stack-lg" onSubmit={handleSubmit}>
-          <div className="stack-sm">
-            <FieldLabel helper="Your name stays on this device for now.">
-              What should we call you?
-            </FieldLabel>
-            <TextInput
-              value={name}
-              onChange={setName}
-              placeholder="Your name"
-            />
-          </div>
-
-          <button className="primary-button" type="submit">
-            Start your day
-          </button>
-        </form>
-      </div>
+        <button className="primary-button" type="submit">
+          Continue
+        </button>
+      </form>
     </ScreenShell>
   );
 }
@@ -267,10 +605,6 @@ export function HomeScreen({
   onViewHistory,
 }) {
   const hasObjectives = objectives.length > 0;
-  const energySegments = Array.from(
-    { length: 10 },
-    (_, index) => index < energy.filledSegments,
-  );
   const stateCardClassName = `pattern-panel dashboard-card dashboard-state-card ${
     trend ? `trend-${trend.state.toLowerCase()}` : `status-${momentum.status.toLowerCase().trim()}`
   }`;
@@ -288,6 +622,7 @@ export function HomeScreen({
       title="Game of Life"
       subtitle="Let's pick up where you left off."
       className="home-shell"
+      showBrand={false}
     >
       <div className="stack-xl">
         <div className={stateCardClassName}>
@@ -297,28 +632,12 @@ export function HomeScreen({
           </div>
           <p className="dashboard-state-headline">{stateHeadline}</p>
           <p className="pattern-body">{stateSubtext}</p>
-          <div
+          <LifeAlignmentBar
+            alignment={energy}
+            label="Life Alignment"
             className="dashboard-energy"
-            aria-label={`Life energy ${energy.score} out of ${energy.max}`}
-          >
-            <div className="alignment-copy-row">
-              <p className="alignment-label">Life energy</p>
-              <p className="dashboard-energy-score">
-                {energy.score} / {energy.max}
-              </p>
-            </div>
-            <div className="alignment-meter alignment-meter-hero" aria-hidden="true">
-              {energySegments.map((filled, index) => (
-                <span
-                  key={index}
-                  className={`alignment-segment ${filled ? 'is-filled' : ''}`.trim()}
-                  style={{ '--segment-index': index }}
-                >
-                  <span className="alignment-segment-fill" />
-                </span>
-              ))}
-            </div>
-          </div>
+            meterClassName="alignment-meter-hero"
+          />
           {trendDetailLine ? <p className="quiet-line">{trendDetailLine}</p> : null}
           {comparisonLine ? <p className="quiet-line">{comparisonLine}</p> : null}
         </div>
@@ -502,12 +821,19 @@ export function DailyObjectivesScreen({
 }) {
   const [objectives, setObjectives] = useState(
     initialObjectives.map((objective) =>
-      buildObjective(
-        objective.label,
-        objective.section ?? 'Custom',
-        Boolean(objective.custom),
-        '',
-      ),
+      ({
+        ...buildObjective(
+          objective.label,
+          objective.section ?? 'Custom',
+          Boolean(objective.custom),
+          objective.outcome ?? '',
+          objective.lenses,
+          objective.fulfillmentRating ?? '',
+          objective.enjoymentRating ?? '',
+          objective.outcomes,
+        ),
+        showCustomOutcomeInput: Boolean(getCustomObjectiveOutcome(objective.outcomes)),
+      }),
     ),
   );
   const [customObjective, setCustomObjective] = useState('');
@@ -550,6 +876,88 @@ export function DailyObjectivesScreen({
     setCustomObjective('');
   }
 
+  function toggleObjectiveLens(objectiveId, lens) {
+    setObjectives((current) =>
+      current.map((objective) => {
+        if (objective.id !== objectiveId) {
+          return objective;
+        }
+
+        const hasLens = objective.lenses.includes(lens);
+        const nextLenses = hasLens
+          ? objective.lenses.filter((value) => value !== lens)
+          : [...objective.lenses, lens];
+
+        return {
+          ...objective,
+          lenses: normalizeObjectiveLenses(nextLenses),
+        };
+      }),
+    );
+  }
+
+  function toggleObjectiveBenefit(objectiveId, benefit) {
+    setObjectives((current) =>
+      current.map((objective) => {
+        if (objective.id !== objectiveId) {
+          return objective;
+        }
+
+        const presetOutcomes = getPresetObjectiveOutcomes(objective.outcomes);
+        const customOutcome = getCustomObjectiveOutcome(objective.outcomes);
+
+        if (benefit === OBJECTIVE_BENEFIT_CUSTOM_OPTION) {
+          if (objective.showCustomOutcomeInput || customOutcome) {
+            return {
+              ...objective,
+              outcomes: presetOutcomes,
+              showCustomOutcomeInput: false,
+            };
+          }
+
+          return {
+            ...objective,
+            showCustomOutcomeInput: true,
+          };
+        }
+
+        const nextPresetOutcomes = presetOutcomes.includes(benefit)
+          ? presetOutcomes.filter((outcome) => outcome !== benefit)
+          : [...presetOutcomes, benefit];
+
+        return {
+          ...objective,
+          outcomes: normalizeObjectiveOutcomes([
+            ...nextPresetOutcomes,
+            ...(customOutcome ? [customOutcome] : []),
+          ]),
+        };
+      }),
+    );
+  }
+
+  function setObjectiveCustomBenefit(objectiveId, value) {
+    setObjectives((current) =>
+      current.map((objective) => {
+        if (objective.id !== objectiveId) {
+          return objective;
+        }
+
+        const presetOutcomes = getPresetObjectiveOutcomes(objective.outcomes);
+        const trimmedValue = value.trim();
+
+        return {
+          ...objective,
+          outcomes: normalizeObjectiveOutcomes([
+            ...presetOutcomes,
+            ...(trimmedValue ? [trimmedValue] : []),
+          ]),
+          showCustomOutcomeInput: true,
+        };
+      }),
+    );
+  }
+
   function handleSubmit(event) {
     event.preventDefault();
 
@@ -558,7 +966,9 @@ export function DailyObjectivesScreen({
     }
 
     onSubmit({
-      dailyObjectives: objectives,
+      dailyObjectives: objectives.map(
+        ({ showCustomOutcomeInput, ...objective }) => objective,
+      ),
     });
   }
 
@@ -571,6 +981,9 @@ export function DailyObjectivesScreen({
           ? "Choose up to 6 - this is your day, even if you're naming it late."
           : "Choose up to 6 - this is your day."
       }
+      flowStep={1}
+      flowTotal={6}
+      flowLabel="Morning setup"
     >
       <form className="stack-xl" onSubmit={handleSubmit}>
         <div className="stack-sm">
@@ -584,6 +997,57 @@ export function DailyObjectivesScreen({
             Select from the lists below. Tap a selected item again to remove it.
           </p>
         </div>
+
+        {objectives.length > 0 ? (
+          <div className="objective-tagging-list">
+            {objectives.map((objective) => (
+              <div key={objective.id} className="objective-tagging-card">
+                <div className="objective-tagging-top">
+                  <p className="objective-tagging-title">{objective.label}</p>
+                </div>
+                <div className="stack-sm">
+                  <FieldLabel helper="Optional">
+                    What does this give you?
+                  </FieldLabel>
+                  <PillGroup
+                    options={[
+                      ...OBJECTIVE_BENEFIT_OPTIONS,
+                      OBJECTIVE_BENEFIT_CUSTOM_OPTION,
+                    ]}
+                    selected={[
+                      ...getPresetObjectiveOutcomes(objective.outcomes),
+                      ...(objective.showCustomOutcomeInput ||
+                      getCustomObjectiveOutcome(objective.outcomes)
+                        ? [OBJECTIVE_BENEFIT_CUSTOM_OPTION]
+                        : []),
+                    ]}
+                    onToggle={(benefit) => toggleObjectiveBenefit(objective.id, benefit)}
+                    multiSelect
+                  />
+                  {objective.showCustomOutcomeInput ? (
+                    <TextInput
+                      value={getCustomObjectiveOutcome(objective.outcomes)}
+                      onChange={(value) =>
+                        setObjectiveCustomBenefit(objective.id, value)
+                      }
+                      placeholder="Add your own"
+                    />
+                  ) : null}
+                  <BenefitTagList outcomes={objective.outcomes} />
+                </div>
+                <div className="stack-sm">
+                  <FieldLabel>What is this serving?</FieldLabel>
+                  <PillGroup
+                    options={OBJECTIVE_LENS_OPTIONS}
+                    selected={objective.lenses}
+                    onToggle={(lens) => toggleObjectiveLens(objective.id, lens)}
+                    multiSelect
+                  />
+                </div>
+              </div>
+            ))}
+          </div>
+        ) : null}
 
         {previousObjectives.length > 0 ? (
           <InlineMessage subtle>
@@ -663,6 +1127,9 @@ export function MorningSupportScreen({
       eyebrow={`Morning structure, ${name}`}
       title="How will you support that today?"
       subtitle="What's your plan for following through?"
+      flowStep={1}
+      flowTotal={6}
+      flowLabel="Morning setup"
     >
       <form className="stack-xl" onSubmit={handleSubmit}>
         <div className="stack-sm">
@@ -735,6 +1202,9 @@ export function LateIntentPromptScreen({ name, onContinue }) {
       eyebrow={`Welcome back, ${name}.`}
       title="You didn't set your objectives this morning."
       subtitle="That's okay. Choose them now, then look honestly at how the day unfolded."
+      flowStep={1}
+      flowTotal={6}
+      flowLabel="Morning setup"
     >
       <button className="primary-button" type="button" onClick={onContinue}>
         Enter them now
@@ -747,21 +1217,43 @@ export function ObjectiveOutcomeScreen({ name, objectives = [], onSubmit }) {
   const [objectiveStates, setObjectiveStates] = useState(
     objectives.map((objective) => ({
       ...objective,
+      outcomes: normalizeObjectiveOutcomes(objective.outcomes),
+      lenses: normalizeObjectiveLenses(objective.lenses),
+      fulfillmentRating: objective.fulfillmentRating ?? '',
+      enjoymentRating: objective.enjoymentRating ?? '',
       pendingProgressCheck: false,
     })),
   );
-  const { score, completed, partially, missed } = getObjectiveCounts(objectiveStates);
+  const {
+    score,
+    completed,
+    partially,
+    missed,
+    fulfillmentScore,
+    enjoymentScore,
+  } = getObjectiveCounts(objectiveStates);
   const maxScore = objectiveStates.length * 2;
   const alignmentRatio = maxScore ? score / maxScore : 0;
   const evaluationStatus =
     alignmentRatio >= 0.75 ? 'architect-led' : alignmentRatio >= 0.4 ? 'mixed' : 'pulled';
-  const evaluationSegments = Array.from(
-    { length: 10 },
-    (_, index) => index < Math.max(0, Math.min(10, Math.round(alignmentRatio * 10))),
-  );
+  const lensPreview = {
+    deployment: getTenPointScore(score, maxScore),
+    fulfillment: getTenPointScore(fulfillmentScore, maxScore),
+    enjoyment: getTenPointScore(enjoymentScore, maxScore),
+  };
+  const evaluationAlignment = {
+    score: Math.max(1, Math.min(10, Math.round(alignmentRatio * 10))),
+    max: 10,
+    filledSegments: Math.max(0, Math.min(10, Math.round(alignmentRatio * 10))),
+  };
   const allScored =
     objectiveStates.length > 0 &&
-    objectiveStates.every((objective) => Boolean(objective.outcome));
+    objectiveStates.every(
+      (objective) =>
+        Boolean(objective.outcome) &&
+        Boolean(objective.fulfillmentRating) &&
+        Boolean(objective.enjoymentRating),
+    );
 
   function handleSubmit(event) {
     event.preventDefault();
@@ -817,74 +1309,94 @@ export function ObjectiveOutcomeScreen({ name, objectives = [], onSubmit }) {
     );
   }
 
+  function setLensRating(objectiveId, key, value) {
+    setObjectiveStates((current) =>
+      current.map((objective) =>
+        objective.id === objectiveId
+          ? {
+              ...objective,
+              [key]: value,
+            }
+          : objective,
+      ),
+    );
+  }
+
   return (
     <ScreenShell
       eyebrow={`Evening evaluation, ${name}`}
       title="How did today actually play out?"
       subtitle="Call each one clearly before you interpret the day."
+      flowStep={2}
+      flowTotal={6}
+      flowLabel="Evaluation"
     >
       <form className="stack-xl" onSubmit={handleSubmit}>
         <div className={`status-panel objective-evaluation-panel status-${evaluationStatus}`}>
-          <p className="pattern-title">Life energy</p>
-          <p className="objective-evaluation-score">
-            {score} / {maxScore}
-          </p>
-          <div
-            className="alignment-block objective-evaluation-meter"
-            aria-label={`Life energy ${score} out of ${maxScore}`}
-          >
-            <div className="alignment-copy-row">
-              <p className="alignment-label">Day control</p>
-              <p className="alignment-score">
-                {Math.max(1, Math.min(10, Math.round(alignmentRatio * 10)))} / 10
-              </p>
-            </div>
-            <div className="alignment-meter" aria-hidden="true">
-              {evaluationSegments.map((filled, index) => (
-                <span
-                  key={index}
-                  className={`alignment-segment ${filled ? 'is-filled' : ''}`.trim()}
-                  style={{ '--segment-index': index }}
-                >
-                  <span className="alignment-segment-fill" />
-                </span>
-              ))}
-            </div>
-          </div>
+          <LifeAlignmentBar
+            alignment={evaluationAlignment}
+            label="Life Alignment"
+            className="objective-evaluation-meter"
+          />
           <p className="quiet-line">
             {completed} did it, {partially} some progress, {missed} not at all
           </p>
+          <div className="objective-evaluation-lens-grid">
+            {LENS_CARD_CONFIGS.map(({ key, label, tone }) => {
+              const score = lensPreview[key];
+
+              return (
+                <DefMetricCard
+                  key={key}
+                  label={label}
+                  score={score}
+                  max={10}
+                  filledSegments={score}
+                  tone={tone}
+                  className="objective-evaluation-lens"
+                />
+              );
+            })}
+          </div>
         </div>
 
         <div className="objective-review-list">
           {objectiveStates.map((objective) => (
             <div key={objective.id} className="objective-review-card">
               <div className="objective-review-top">
-                <p className="objective-review-title">{objective.label}</p>
+                <div className="objective-review-copy">
+                  <p className="objective-review-title">{objective.label}</p>
+                  <BenefitTagList outcomes={objective.outcomes} />
+                  <LensTagList lenses={objective.lenses} />
+                </div>
                 <OutcomeTag status={objective.outcome} />
               </div>
 
-              <div className="objective-binary-row">
-                <button
-                  type="button"
-                  className={`pill ${objective.outcome === 'Completed' ? 'is-active' : ''}`.trim()}
-                  onClick={() => markDidIt(objective.id)}
-                >
-                  Did it
-                </button>
-                <button
-                  type="button"
-                  className={`pill ${
-                    objective.outcome === 'Partially' ||
-                    objective.outcome === 'Missed' ||
-                    objective.pendingProgressCheck
-                      ? 'is-active'
-                      : ''
-                  }`.trim()}
-                  onClick={() => askProgressQuestion(objective.id)}
-                >
-                  Didn't do it
-                </button>
+              <div className="stack-sm">
+                <p className="objective-lens-label lens-deployment">Deployment</p>
+                <p className="field-helper">Did you complete it?</p>
+                <div className="objective-binary-row">
+                  <button
+                    type="button"
+                    className={`pill ${objective.outcome === 'Completed' ? 'is-active' : ''}`.trim()}
+                    onClick={() => markDidIt(objective.id)}
+                  >
+                    Did it
+                  </button>
+                  <button
+                    type="button"
+                    className={`pill ${
+                      objective.outcome === 'Partially' ||
+                      objective.outcome === 'Missed' ||
+                      objective.pendingProgressCheck
+                        ? 'is-active'
+                        : ''
+                    }`.trim()}
+                    onClick={() => askProgressQuestion(objective.id)}
+                  >
+                    Didn't do it
+                  </button>
+                </div>
               </div>
 
               {objective.pendingProgressCheck ? (
@@ -912,6 +1424,30 @@ export function ObjectiveOutcomeScreen({ name, objectives = [], onSubmit }) {
                   </div>
                 </div>
               ) : null}
+
+              <div className="stack-sm">
+                <p className="objective-lens-label lens-enjoyment">Enjoyment</p>
+                <p className="field-helper">Did you enjoy it or feel aligned?</p>
+                <PillGroup
+                  options={LENS_RATING_OPTIONS}
+                  selected={objective.enjoymentRating}
+                  onToggle={(rating) =>
+                    setLensRating(objective.id, 'enjoymentRating', rating)
+                  }
+                />
+              </div>
+
+              <div className="stack-sm">
+                <p className="objective-lens-label lens-fulfillment">Fulfillment</p>
+                <p className="field-helper">Did it feel meaningful?</p>
+                <PillGroup
+                  options={LENS_RATING_OPTIONS}
+                  selected={objective.fulfillmentRating}
+                  onToggle={(rating) =>
+                    setLensRating(objective.id, 'fulfillmentRating', rating)
+                  }
+                />
+              </div>
             </div>
           ))}
         </div>
@@ -982,6 +1518,9 @@ export function EveningReflectionScreen({
       eyebrow={`Evening reflection, ${name}`}
       title="What shaped the result?"
       subtitle="Stay close to what happened. No spin, no self-attack."
+      flowStep={2}
+      flowTotal={6}
+      flowLabel="Evaluation"
     >
       <form className="stack-xl" onSubmit={handleSubmit}>
         <InlineMessage subtle>
@@ -1038,6 +1577,69 @@ export function EveningReflectionScreen({
             onChange={setNotes}
             placeholder="Anything else you want to name about the day."
             rows={5}
+          />
+        </div>
+
+        <button className="primary-button" type="submit">
+          Continue
+        </button>
+      </form>
+    </ScreenShell>
+  );
+}
+
+export function EnjoymentReflectionScreen({
+  initialSignal,
+  initialText,
+  onSubmit,
+}) {
+  const [enjoymentSignal, setEnjoymentSignal] = useState(initialSignal);
+  const [enjoymentText, setEnjoymentText] = useState(initialText);
+
+  function handleSubmit(event) {
+    event.preventDefault();
+
+    if (!enjoymentSignal && !enjoymentText.trim()) {
+      return;
+    }
+
+    if (enjoymentSignal === 'Other' && !enjoymentText.trim()) {
+      return;
+    }
+
+    onSubmit({
+      enjoymentSignal,
+      enjoymentText: enjoymentText.trim(),
+    });
+  }
+
+  return (
+    <ScreenShell
+      eyebrow="Alignment"
+      title="What actually felt right today?"
+      subtitle="Name one moment that felt like you, present, or genuinely enjoyable."
+      flowStep={3}
+      flowTotal={6}
+      flowLabel="Alignment"
+    >
+      <form className="stack-xl" onSubmit={handleSubmit}>
+        <div className="stack-sm">
+          <FieldLabel>What part of your day felt most like you?</FieldLabel>
+          <PillGroup
+            options={ENJOYMENT_SIGNAL_OPTIONS}
+            selected={enjoymentSignal}
+            onToggle={setEnjoymentSignal}
+          />
+        </div>
+
+        <div className="stack-sm">
+          <FieldLabel helper={enjoymentSignal === 'Other' ? 'Required for Other' : 'Optional'}>
+            Name the moment
+          </FieldLabel>
+          <TextInput
+            value={enjoymentText}
+            onChange={setEnjoymentText}
+            placeholder="A few words is enough"
           />
         </div>
 
@@ -1260,6 +1862,9 @@ export function EmotionCheckInScreen({ initialEmotion, onSubmit }) {
       eyebrow="Emotional check-in"
       title="What comes up when you see this?"
       subtitle="Choose the closest fit. It doesn't have to be perfect."
+      flowStep={4}
+      flowTotal={6}
+      flowLabel="Interpretation"
     >
       <form className="stack-lg" onSubmit={handleSubmit}>
         <PillGroup
@@ -1302,6 +1907,9 @@ export function SuccessReflectionScreen({
       eyebrow="Success reflection"
       title="You stayed aligned today"
       subtitle="Notice what helped, so you can carry it forward."
+      flowStep={4}
+      flowTotal={6}
+      flowLabel="Interpretation"
     >
       <form className="stack-xl" onSubmit={handleSubmit}>
         <div className="stack-sm">
@@ -1374,6 +1982,9 @@ export function RootCauseScreen({
       eyebrow="Interpretation"
       title="Let's understand what drove today"
       subtitle="Awareness is useful when it leads somewhere."
+      flowStep={4}
+      flowTotal={6}
+      flowLabel="Interpretation"
     >
       <form className="stack-xl" onSubmit={handleSubmit}>
         {affectedObjectives.length > 0 ? (
@@ -1423,6 +2034,7 @@ export function RootCauseScreen({
 export function SuggestedShiftScreen({
   variant = 'challenge',
   rootCauseLabel,
+  workedMoments = [],
   suggestion,
   initialSource,
   initialCustomValue,
@@ -1451,8 +2063,29 @@ export function SuggestedShiftScreen({
           ? 'Keep this grounded. Carry one useful condition forward.'
           : 'Keep this grounded. Name what happened, then choose one move for tomorrow.'
       }
+      flowStep={5}
+      flowTotal={6}
+      flowLabel="Next move"
     >
       <div className="stack-xl">
+        {workedMoments.length > 0 ? (
+          <div className="pattern-panel worked-panel">
+            <p className="pattern-title">What worked today</p>
+            <div className="pattern-list worked-moment-list">
+              {workedMoments.map((moment, index) => (
+                <div key={`${moment.label}-${index}`} className="worked-moment">
+                  <p className="worked-moment-label">{moment.label}</p>
+                  <DisplayValue
+                    value={moment.value}
+                    className="worked-moment-value"
+                    rawClassName="worked-moment-raw"
+                  />
+                </div>
+              ))}
+            </div>
+          </div>
+        ) : null}
+
         <InlineMessage subtle>
           <span className="quote-label">
             {variant === 'success' ? 'What helped most:' : 'What showed up most:'}
@@ -1535,6 +2168,9 @@ export function CommitmentScreen({
       eyebrow="Commitment"
       title="Tomorrow, I will:"
       subtitle="Add a time window if it helps this actually happen."
+      flowStep={6}
+      flowTotal={6}
+      flowLabel="Commitment"
     >
       <form className="stack-lg" onSubmit={handleSubmit}>
         <InlineMessage>
@@ -1656,6 +2292,9 @@ export function FollowUpResultScreen({ result, onContinue }) {
 export function RecentDaysScreen({
   trendSummary = '',
   patternSummary,
+  enjoymentPatternSummary = [],
+  lensPatternInsight,
+  outcomePatternInsight,
   repeatedOtherPattern,
   entries,
   onSelectDay,
@@ -1699,6 +2338,35 @@ export function RecentDaysScreen({
           )}
         </div>
 
+        {lensPatternInsight?.line ? (
+          <div className="pattern-panel quiet-pattern-panel">
+            <p className="pattern-title">Three-lens pattern</p>
+            <p className="pattern-body">{lensPatternInsight.line}</p>
+          </div>
+        ) : null}
+
+        {outcomePatternInsight?.line ? (
+          <div className="pattern-panel quiet-pattern-panel">
+            <p className="pattern-title">What your days have been giving you</p>
+            <p className="pattern-body">{outcomePatternInsight.line}</p>
+            <BenefitTagList outcomes={outcomePatternInsight.topOutcomes} />
+          </div>
+        ) : null}
+
+        {enjoymentPatternSummary.length > 0 ? (
+          <div className="pattern-panel quiet-pattern-panel">
+            <p className="pattern-title">What tends to feel right</p>
+            <p className="pattern-body">You tend to feel better on days when:</p>
+            <div className="pattern-list">
+              {enjoymentPatternSummary.map((signal) => (
+                <p key={signal} className="pattern-item">
+                  {signal}
+                </p>
+              ))}
+            </div>
+          </div>
+        ) : null}
+
         <div className="history-list">
           {entries.map((entry) => (
             <button
@@ -1731,12 +2399,15 @@ export function RecentDayDetailScreen({
   dateLabel,
   status,
   alignment,
+  lensMetrics,
+  dayOutcomes = [],
   objectives,
   legacyIntention,
   morningSupport,
   intentionalTime,
   passiveTime,
   distractions,
+  enjoymentMoment,
   rootCause,
   successReflection,
   noSignificantChallenges,
@@ -1763,14 +2434,31 @@ export function RecentDayDetailScreen({
           </p>
         </div>
 
+        <LensScoreGrid metrics={lensMetrics} className="detail-lens-grid" />
+
         <div className="detail-list">
+          {dayOutcomes.length > 0 ? (
+            <div className="detail-block">
+              <p className="detail-label">What the day gave you</p>
+              <BenefitTagList outcomes={dayOutcomes} />
+            </div>
+          ) : null}
+
           {objectives.length > 0 ? (
             <div className="detail-block">
               <p className="detail-label">Daily objectives</p>
               <div className="objective-detail-list">
                 {objectives.map((objective) => (
                   <div key={objective.id} className="objective-detail-item">
-                    <p className="objective-detail-label">{objective.label}</p>
+                    <div className="objective-detail-copy">
+                      <p className="objective-detail-label">{objective.label}</p>
+                      <BenefitTagList outcomes={objective.outcomes} />
+                      <LensTagList lenses={objective.lenses} />
+                      <p className="objective-detail-meta">
+                        Enjoyment: {objective.enjoymentRating || 'Medium'} | Fulfillment:{' '}
+                        {objective.fulfillmentRating || 'Medium'}
+                      </p>
+                    </div>
                     <OutcomeTag status={objective.outcome} />
                   </div>
                 ))}
@@ -1807,6 +2495,17 @@ export function RecentDayDetailScreen({
               rawClassName="detail-raw-value"
             />
           </div>
+
+          {enjoymentMoment ? (
+            <div className="detail-block">
+              <p className="detail-label">What felt right</p>
+              <DisplayValue
+                value={enjoymentMoment}
+                className="detail-value"
+                rawClassName="detail-raw-value"
+              />
+            </div>
+          ) : null}
 
           <div className="detail-block">
             <p className="detail-label">
@@ -1846,17 +2545,26 @@ export function CompleteScreen({
   dayStatusHeadline,
   dayStatusCopy,
   alignment,
+  lensMetrics,
+  lensInterpretation,
+  dailyOutcomeSummary,
   trendLine,
+  celebration,
+  enjoymentMoment,
   smallShift,
   commitmentWindow,
   onViewHistory,
   onStartOver,
   onResetAllData,
 }) {
-  const segments = Array.from(
-    { length: 10 },
-    (_, index) => index < alignment.filledSegments,
-  );
+  const showTrendLine = Boolean(trendLine) && !celebration?.streakLine;
+  const outcomeHeading =
+    dayStatus === 'Architect-led'
+      ? 'Today gave you'
+      : dayStatus === 'Mixed'
+        ? 'Today still gave you'
+        : 'Even today gave you';
+  const hasOutcomeSummary = Boolean(dailyOutcomeSummary?.topOutcomes?.length);
 
   return (
     <ScreenShell
@@ -1865,32 +2573,64 @@ export function CompleteScreen({
       subtitle="The day landed. Keep what you learned and carry one thing forward."
     >
       <div className="stack-lg">
-        <div className={`status-panel result-moment status-${dayStatus.toLowerCase()}`}>
-          <p className="result-headline">{dayStatusHeadline}</p>
+        <div
+          className={`status-panel result-moment status-${dayStatus.toLowerCase()} ${
+            celebration?.isStrongDay ? 'is-celebrating' : ''
+          }`.trim()}
+        >
+          <p className="result-headline">
+            {celebration?.isStrongDay ? celebration.primaryMessage : dayStatusHeadline}
+          </p>
           <span className={`status-tag status-${dayStatus.toLowerCase()}`}>{dayStatus}</span>
-            <div
-              className="alignment-block"
-              aria-label={`Day control ${alignment.score} out of ${alignment.max}`}
-            >
-              <div className="alignment-copy-row">
-                <p className="alignment-label">Day control</p>
-                <p className="alignment-score">
-                  {alignment.score} / {alignment.max}
+          <LifeAlignmentBar alignment={alignment} label="Life Alignment" />
+          <LensScoreGrid metrics={lensMetrics} className="result-lens-grid" />
+          {lensInterpretation ? (
+            <p className="lens-interpretation">{lensInterpretation}</p>
+          ) : null}
+          {celebration?.isStrongDay ? (
+            <div className="celebration-copy">
+              <p className="celebration-subtext">{celebration.subtext}</p>
+              {celebration.alignmentLine ? (
+                <p className="celebration-alignment-line">{celebration.alignmentLine}</p>
+              ) : null}
+              {enjoymentMoment ? (
+                <DisplayValue
+                  value={enjoymentMoment}
+                  className="celebration-enjoyment"
+                  rawClassName="celebration-raw-value"
+                />
+              ) : null}
+              <div className="result-outcome-panel">
+                <p className="result-outcome-title">
+                  {hasOutcomeSummary ? outcomeHeading : 'Behavioral summary'}
                 </p>
+                {hasOutcomeSummary ? (
+                  <BenefitTagList outcomes={dailyOutcomeSummary.topOutcomes} />
+                ) : (
+                  <p className="pattern-body">{lensInterpretation || dayStatusCopy}</p>
+                )}
+              </div>
+              <p className="celebration-reinforcement">{celebration.reinforcement}</p>
+              {celebration.streakLine ? (
+                <p className="celebration-streak">{celebration.streakLine}</p>
+              ) : null}
+              {celebration.weeklyLine ? (
+                <p className="celebration-weekly">{celebration.weeklyLine}</p>
+              ) : null}
             </div>
-            <div className="alignment-meter" aria-hidden="true">
-              {segments.map((filled, index) => (
-                <span
-                  key={index}
-                  className={`alignment-segment ${filled ? 'is-filled' : ''}`.trim()}
-                  style={{ '--segment-index': index }}
-                >
-                  <span className="alignment-segment-fill" />
-                </span>
-              ))}
+          ) : (
+            <div className="result-outcome-panel">
+              <p className="result-outcome-title">
+                {hasOutcomeSummary ? outcomeHeading : 'Behavioral summary'}
+              </p>
+              {hasOutcomeSummary ? (
+                <BenefitTagList outcomes={dailyOutcomeSummary.topOutcomes} />
+              ) : (
+                <p className="pattern-body">{lensInterpretation || dayStatusCopy}</p>
+              )}
             </div>
-          </div>
-          {trendLine ? <p className="trend-line">{trendLine}</p> : null}
+          )}
+          {showTrendLine ? <p className="trend-line">{trendLine}</p> : null}
           <p className="status-panel-copy">{dayStatusCopy}</p>
         </div>
 

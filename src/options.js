@@ -24,6 +24,23 @@ export const OBJECTIVE_SECTIONS = [
 ];
 
 export const OBJECTIVE_OUTCOME_OPTIONS = ['Completed', 'Partially', 'Missed'];
+export const OBJECTIVE_LENS_OPTIONS = [
+  'Deployment',
+  'Enjoyment',
+  'Fulfillment',
+];
+export const LENS_RATING_OPTIONS = ['Low', 'Medium', 'High'];
+export const OBJECTIVE_BENEFIT_OPTIONS = [
+  'Save money',
+  'Feel better',
+  'More energy',
+  'Less stress',
+  'Better focus',
+  'Progress',
+  'Connection',
+  'Discipline',
+];
+export const OBJECTIVE_BENEFIT_CUSTOM_OPTION = 'Custom input';
 
 export const BREAKDOWN_OPTIONS = [
   'Energy',
@@ -73,6 +90,15 @@ export const EMOTION_OPTIONS = [
   'Disappointed',
   'Neutral',
   'Motivated',
+];
+
+export const ENJOYMENT_SIGNAL_OPTIONS = [
+  'Made meaningful progress',
+  'Felt present with people',
+  'Got into focused work',
+  'Moved your body',
+  'Had a calmer pace',
+  'Other',
 ];
 
 export const SUCCESS_REFLECTION_OPTIONS = [

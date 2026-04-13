@@ -2,6 +2,7 @@ import { formatReadableDate } from './date.js';
 import {
   getDistractionLabel,
   OTHER_FACTORS_LABEL,
+  getEnjoymentLabel,
   getRootCauseLabel,
   getSuccessFactorLabel,
 } from './suggestions.js';
@@ -17,6 +18,12 @@ const OUTCOME_POINTS = {
   Completed: 2,
   Partially: 1,
   Missed: 0,
+};
+
+const LENS_POINTS = {
+  Low: 0,
+  Medium: 1,
+  High: 2,
 };
 
 export const BASELINE_DAYS = 3;
@@ -35,6 +42,25 @@ const OTHER_PATTERN_PREFIXES = [
   'still ',
   'kind of ',
   'sort of ',
+];
+
+const MOVEMENT_OBJECTIVE_KEYWORDS = [
+  'move your body',
+  'walk',
+  'run',
+  'workout',
+  'exercise',
+  'gym',
+  'stretch',
+];
+
+const CONNECTION_OBJECTIVE_KEYWORDS = [
+  'be present with people',
+  'people',
+  'family',
+  'friend',
+  'partner',
+  'connection',
 ];
 
 function formatList(labels) {
@@ -81,6 +107,43 @@ function average(values) {
   return values.reduce((total, value) => total + value, 0) / values.length;
 }
 
+function normalizeObjectiveOutcomes(outcomes = []) {
+  return Array.isArray(outcomes)
+    ? [...new Set(outcomes.map((value) => value?.trim?.()).filter(Boolean))]
+    : [];
+}
+
+function objectiveMatchesKeywords(objective, keywords = []) {
+  const label = objective?.label?.toLowerCase?.() ?? '';
+
+  if (!label) {
+    return false;
+  }
+
+  return keywords.some((keyword) => label.includes(keyword));
+}
+
+function hasObjectiveOutcomeWithKeywords(entry, outcome, keywords = []) {
+  return (entry.dailyObjectives ?? []).some(
+    (objective) =>
+      normalizeObjectiveOutcomes(objective.outcomes).includes(outcome) &&
+      objectiveMatchesKeywords(objective, keywords),
+  );
+}
+
+function getAverageAlignmentRatio(entries) {
+  return average(
+    entries.map((entry) => {
+      const alignment = getAlignmentMetrics(entry);
+      return alignment.max ? alignment.score / alignment.max : 0;
+    }),
+  );
+}
+
+function getAverageLensRatio(entries, key) {
+  return average(entries.map((entry) => getLensMetrics(entry)[key].ratio));
+}
+
 function getOrdinalLabel(value) {
   const remainder = value % 10;
   const teen = value % 100;
@@ -104,6 +167,20 @@ function getTrailingStatusStreak(statuses, targetStatus) {
   let streak = 0;
 
   for (let index = statuses.length - 1; index >= 0; index -= 1) {
+    if (statuses[index] !== targetStatus) {
+      break;
+    }
+
+    streak += 1;
+  }
+
+  return streak;
+}
+
+function getLeadingStatusStreak(statuses, targetStatus) {
+  let streak = 0;
+
+  for (let index = 0; index < statuses.length; index += 1) {
     if (statuses[index] !== targetStatus) {
       break;
     }
@@ -325,6 +402,53 @@ function getFilledSegments(ratio, score) {
   return Math.max(1, Math.min(10, Math.round(ratio * 10)));
 }
 
+function getLensLevel(ratio) {
+  if (ratio >= 0.72) {
+    return 'High';
+  }
+
+  if (ratio >= 0.4) {
+    return 'Moderate';
+  }
+
+  return 'Low';
+}
+
+function createLensMetric(score, max, label) {
+  const ratio = max ? score / max : 0;
+  const normalizedScore = max ? Math.max(0, Math.round(ratio * 10)) : 0;
+
+  return {
+    label,
+    score: normalizedScore,
+    max: 10,
+    ratio,
+    filledSegments: getFilledSegments(ratio, normalizedScore),
+    level: getLensLevel(ratio),
+  };
+}
+
+function createNeutralLensMetric(label) {
+  return {
+    label,
+    score: 5,
+    max: 10,
+    ratio: 0.5,
+    filledSegments: 5,
+    level: 'Moderate',
+  };
+}
+
+export function getObjectiveLensRating(objective, key) {
+  const value = objective?.[key] ?? '';
+
+  if (LENS_POINTS[value] !== undefined) {
+    return value;
+  }
+
+  return objective?.outcome ? 'Medium' : '';
+}
+
 export function getObjectiveSummary(entry) {
   const objectives = Array.isArray(entry.dailyObjectives)
     ? entry.dailyObjectives.filter((objective) => objective?.label)
@@ -352,6 +476,31 @@ export function getObjectiveSummary(entry) {
   };
 }
 
+export function getEntryOutcomeSummary(entry, limit = 3) {
+  const counts = new Map();
+
+  getObjectiveSummary(entry).objectives
+    .filter((objective) => objective.outcome !== 'Missed')
+    .forEach((objective) => {
+      const weight = objective.outcome === 'Completed' ? 2 : 1;
+
+      normalizeObjectiveOutcomes(objective.outcomes).forEach((outcome) => {
+        counts.set(outcome, (counts.get(outcome) ?? 0) + weight);
+      });
+    });
+
+  const ranked = [...counts.entries()].sort(
+    (left, right) => right[1] - left[1] || left[0].localeCompare(right[0]),
+  );
+
+  return {
+    hasOutcomes: ranked.length > 0,
+    totalSelections: ranked.reduce((total, [, count]) => total + count, 0),
+    counts: ranked,
+    topOutcomes: ranked.slice(0, limit).map(([label]) => label),
+  };
+}
+
 export function getAlignmentMetrics(entry) {
   const summary = getObjectiveSummary(entry);
   const hasObjectiveOutcomes =
@@ -376,6 +525,81 @@ export function getAlignmentMetrics(entry) {
     filledSegments: getFilledSegments(ratio, score),
     hasObjectiveScore: true,
   };
+}
+
+export function getLensMetrics(entry) {
+  const summary = getObjectiveSummary(entry);
+
+  if (summary.total === 0) {
+    const deployment = getAlignmentMetrics(entry);
+
+    return {
+      deployment: {
+        ...deployment,
+        label: 'Deployment',
+        level: getLensLevel(deployment.ratio ?? 0),
+      },
+      fulfillment: createNeutralLensMetric('Fulfillment'),
+      enjoyment: createNeutralLensMetric('Enjoyment'),
+    };
+  }
+
+  const lensMax = summary.total * 2;
+  const deployment = getAlignmentMetrics(entry);
+  const fulfillmentScore = summary.objectives.reduce(
+    (total, objective) =>
+      total + (LENS_POINTS[getObjectiveLensRating(objective, 'fulfillmentRating')] ?? 0),
+    0,
+  );
+  const enjoymentScore = summary.objectives.reduce(
+    (total, objective) =>
+      total + (LENS_POINTS[getObjectiveLensRating(objective, 'enjoymentRating')] ?? 0),
+    0,
+  );
+
+  return {
+    deployment: {
+      ...deployment,
+      label: 'Deployment',
+      level: getLensLevel(deployment.ratio ?? 0),
+    },
+    fulfillment: createLensMetric(fulfillmentScore, lensMax, 'Fulfillment'),
+    enjoyment: createLensMetric(enjoymentScore, lensMax, 'Enjoyment'),
+  };
+}
+
+export function getLensInterpretation(entry) {
+  const { deployment, fulfillment, enjoyment } = getLensMetrics(entry);
+  const tightlyAligned =
+    Math.abs(deployment.ratio - fulfillment.ratio) <= 0.12 &&
+    Math.abs(deployment.ratio - enjoyment.ratio) <= 0.12 &&
+    deployment.ratio >= 0.55;
+
+  if (deployment.level === 'High' && enjoyment.level === 'Low') {
+    return 'High deployment + low enjoyment';
+  }
+
+  if (deployment.level === 'High' && fulfillment.level === 'Low') {
+    return 'Low fulfillment despite completion';
+  }
+
+  if (tightlyAligned) {
+    return 'Balanced day';
+  }
+
+  if (fulfillment.level === 'High' && enjoyment.level === 'High') {
+    return 'Meaning and enjoyment stayed strong';
+  }
+
+  if (fulfillment.level === 'High' && deployment.level === 'Low') {
+    return 'What mattered felt clearer than what got finished';
+  }
+
+  if (deployment.level === 'High') {
+    return 'Execution carried more of the day than meaning or enjoyment';
+  }
+
+  return 'The lenses were pulling in different directions';
 }
 
 function calculateDayStatus(entry) {
@@ -701,11 +925,78 @@ export function getRecentAlignmentSummary(entries, limit = 3) {
   };
 }
 
+export function getCelebrationSummary(entries, weeklyLimit = 7) {
+  const recentEntries = getReviewableEntries(entries);
+
+  if (recentEntries.length === 0) {
+    return {
+      isStrongDay: false,
+      primaryMessage: '',
+      subtext: '',
+      alignmentLine: '',
+      enjoymentMoment: '',
+      reinforcement: '',
+      streakLine: '',
+      weeklyLine: '',
+    };
+  }
+
+  const todayEntry = recentEntries[0];
+  const todayStatus = getDayStatus(todayEntry);
+  const todayAlignment = getAlignmentMetrics(todayEntry);
+  const isStrongDay =
+    todayStatus === 'Architect-led' ||
+    (todayAlignment.max > 0 && todayAlignment.score / todayAlignment.max >= 0.75);
+
+  if (!isStrongDay) {
+    return {
+      isStrongDay: false,
+      primaryMessage: '',
+      subtext: '',
+      alignmentLine: '',
+      enjoymentMoment: '',
+      reinforcement: '',
+      streakLine: '',
+      weeklyLine: '',
+    };
+  }
+
+  const statuses = recentEntries.map((entry) => getDayStatus(entry));
+  const architectLedStreak = getLeadingStatusStreak(statuses, 'Architect-led');
+  const recentArchitectLedCount = recentEntries
+    .slice(0, weeklyLimit)
+    .filter((entry) => getDayStatus(entry) === 'Architect-led').length;
+  const enjoymentMoment = getEnjoymentLabel(
+    todayEntry.enjoymentSignal,
+    todayEntry.enjoymentText,
+  );
+
+  return {
+    isStrongDay: true,
+    primaryMessage: 'You stayed in control today.',
+    subtext: 'You followed through on what mattered.',
+    alignmentLine: enjoymentMoment
+      ? "You didn't just stay in control. You felt it."
+      : 'Parts of your day actually felt right.',
+    enjoymentMoment,
+    reinforcement: 'This is how control gets built.',
+    streakLine:
+      architectLedStreak >= 2 ? `${architectLedStreak} days in a row.` : '',
+    weeklyLine:
+      recentArchitectLedCount >= 3
+        ? "You've been showing up for yourself this week."
+        : '',
+  };
+}
+
 export function getHistoryDescription(entry) {
   const { total, completedCount, slippedCount } = getObjectiveSummary(entry);
+  const lensMetrics = getLensMetrics(entry);
   if (entry.noSignificantChallenges) {
     return total
-      ? `Completed ${completedCount} of ${total} objectives`
+      ? lensMetrics.enjoyment.level === 'High'
+        ? `Completed ${completedCount} of ${total} objectives with strong enjoyment`
+        : `Completed ${completedCount} of ${total} objectives`
       : 'Followed through on planned priorities';
   }
 
@@ -730,7 +1021,9 @@ export function getHistoryDescription(entry) {
   }
 
   if (status === 'Architect-led') {
-    return progressText;
+    return lensMetrics.fulfillment.level === 'Low'
+      ? `${progressText}. Completion outweighed meaning`
+      : progressText;
   }
 
   return distractionText
@@ -775,4 +1068,192 @@ export function getPatternSummary(entries) {
     .sort((left, right) => right[1] - left[1] || left[0].localeCompare(right[0]))
     .slice(0, 2)
     .map(([label]) => label);
+}
+
+export function getEnjoymentPatternSummary(entries) {
+  const counts = new Map();
+
+  entries.forEach((entry) => {
+    const label = getEnjoymentLabel(entry.enjoymentSignal, entry.enjoymentText);
+
+    if (!label) {
+      return;
+    }
+
+    counts.set(label, (counts.get(label) ?? 0) + 1);
+  });
+
+  return [...counts.entries()]
+    .sort((left, right) => right[1] - left[1] || left[0].localeCompare(right[0]))
+    .slice(0, 2)
+    .map(([label]) => label);
+}
+
+export function getLensPatternInsight(entries, limit = 5) {
+  const recentEntries = getReviewableEntries(entries).slice(0, limit);
+
+  if (recentEntries.length < 2) {
+    return {
+      line: '',
+      sampleSize: recentEntries.length,
+    };
+  }
+
+  const totals = recentEntries.reduce(
+    (running, entry) => {
+      const metrics = getLensMetrics(entry);
+
+      return {
+        deployment: running.deployment + metrics.deployment.ratio,
+        fulfillment: running.fulfillment + metrics.fulfillment.ratio,
+        enjoyment: running.enjoyment + metrics.enjoyment.ratio,
+      };
+    },
+    {
+      deployment: 0,
+      fulfillment: 0,
+      enjoyment: 0,
+    },
+  );
+
+  const averages = {
+    deployment: totals.deployment / recentEntries.length,
+    fulfillment: totals.fulfillment / recentEntries.length,
+    enjoyment: totals.enjoyment / recentEntries.length,
+  };
+  const deploymentLevel = getLensLevel(averages.deployment);
+  const fulfillmentLevel = getLensLevel(averages.fulfillment);
+  const enjoymentLevel = getLensLevel(averages.enjoyment);
+  const balanced =
+    Math.abs(averages.deployment - averages.fulfillment) <= 0.12 &&
+    Math.abs(averages.deployment - averages.enjoyment) <= 0.12;
+
+  let line = '';
+
+  if (deploymentLevel === 'High' && enjoymentLevel === 'Low') {
+    line = 'You consistently complete what you set, but enjoyment has been low.';
+  } else if (deploymentLevel === 'High' && fulfillmentLevel === 'Low') {
+    line = "You consistently complete tasks, but they haven't felt very meaningful.";
+  } else if (
+    fulfillmentLevel === 'High' &&
+    enjoymentLevel === 'High' &&
+    deploymentLevel === 'Moderate'
+  ) {
+    line = 'You feel best on days with high fulfillment and moderate deployment.';
+  } else if (balanced) {
+    line = 'Your recent days have been fairly balanced across deployment, fulfillment, and enjoyment.';
+  } else if (fulfillmentLevel === 'High' && enjoymentLevel === 'High') {
+    line = 'You tend to feel best when meaning and enjoyment stay high together.';
+  } else if (deploymentLevel === 'Low' && fulfillmentLevel === 'High') {
+    line = 'What matters has been clearer than what actually gets finished.';
+  } else if (deploymentLevel === 'High') {
+    line = 'Execution has been stronger than fulfillment or enjoyment lately.';
+  } else {
+    line = 'The three lenses have been uneven lately.';
+  }
+
+  return {
+    line,
+    sampleSize: recentEntries.length,
+    deployment: createLensMetric(averages.deployment * 10, 10, 'Deployment'),
+    fulfillment: createLensMetric(averages.fulfillment * 10, 10, 'Fulfillment'),
+    enjoyment: createLensMetric(averages.enjoyment * 10, 10, 'Enjoyment'),
+  };
+}
+
+export function getOutcomePatternInsight(entries, limit = 7) {
+  const recentEntries = getReviewableEntries(entries).slice(0, limit);
+  const formattedTopOutcomes = (labels) =>
+    formatList(labels.map((label) => lowerCaseFirst(label)));
+
+  if (recentEntries.length < 2) {
+    return {
+      line: '',
+      topOutcomes: [],
+      sampleSize: recentEntries.length,
+    };
+  }
+
+  const counts = new Map();
+
+  recentEntries.forEach((entry) => {
+    getEntryOutcomeSummary(entry, limit).counts.forEach(([label, count]) => {
+      counts.set(label, (counts.get(label) ?? 0) + count);
+    });
+  });
+
+  const rankedOutcomes = [...counts.entries()].sort(
+    (left, right) => right[1] - left[1] || left[0].localeCompare(right[0]),
+  );
+  const topOutcomes = rankedOutcomes.slice(0, 3).map(([label]) => label);
+  const [topOutcome, topOutcomeCount = 0] = rankedOutcomes[0] ?? [];
+
+  if (!topOutcome || topOutcomeCount < 2) {
+    return {
+      line: topOutcomes.length
+        ? `Lately, your objectives have been giving you ${formattedTopOutcomes(
+            topOutcomes,
+          )}.`
+        : '',
+      topOutcomes,
+      sampleSize: recentEntries.length,
+    };
+  }
+
+  const entriesWithTopOutcome = recentEntries.filter((entry) =>
+    getEntryOutcomeSummary(entry, limit).counts.some(
+      ([label]) => label === topOutcome,
+    ),
+  );
+  const averageObjectiveCount = average(
+    entriesWithTopOutcome.map((entry) => getObjectiveSummary(entry).total),
+  );
+  const averageAlignment = getAverageAlignmentRatio(entriesWithTopOutcome);
+  const averageDeployment = getAverageLensRatio(entriesWithTopOutcome, 'deployment');
+  const averageFulfillment = getAverageLensRatio(entriesWithTopOutcome, 'fulfillment');
+  const averageEnjoyment = getAverageLensRatio(entriesWithTopOutcome, 'enjoyment');
+  const movementShare =
+    entriesWithTopOutcome.filter((entry) =>
+      hasObjectiveOutcomeWithKeywords(entry, topOutcome, MOVEMENT_OBJECTIVE_KEYWORDS),
+    ).length / entriesWithTopOutcome.length;
+  const connectionShare =
+    entriesWithTopOutcome.filter((entry) =>
+      hasObjectiveOutcomeWithKeywords(entry, topOutcome, CONNECTION_OBJECTIVE_KEYWORDS),
+    ).length / entriesWithTopOutcome.length;
+
+  let line = '';
+
+  if (topOutcome === 'More energy' && movementShare >= 0.5) {
+    line = 'You gain the most energy on days with movement-based objectives.';
+  } else if (
+    topOutcome === 'Less stress' &&
+    averageObjectiveCount <= 3.5 &&
+    averageFulfillment >= 0.55
+  ) {
+    line = 'Your days with the least stress include fewer but more meaningful objectives.';
+  } else if (topOutcome === 'Save money' && averageEnjoyment >= 0.6) {
+    line = 'You consistently save money on high-enjoyment days.';
+  } else if (topOutcome === 'Better focus' && averageObjectiveCount <= 3.5) {
+    line = 'Better focus shows up most when the day stays narrower.';
+  } else if (topOutcome === 'Progress' && averageDeployment >= 0.65) {
+    line = 'Progress tends to build on days with stronger follow-through.';
+  } else if (topOutcome === 'Feel better' && averageEnjoyment >= 0.6) {
+    line = 'Feeling better tends to follow days with stronger enjoyment.';
+  } else if (topOutcome === 'Connection' && connectionShare >= 0.5) {
+    line = 'Connection shows up most on days when people stay in view.';
+  } else if (topOutcome === 'Discipline' && averageDeployment >= 0.65) {
+    line = 'Discipline tends to build on days with stronger follow-through.';
+  } else if (averageAlignment >= 0.65) {
+    line = `${topOutcome} tends to show up more on your better-aligned days.`;
+  } else {
+    line = `Lately, your objectives have been giving you ${formattedTopOutcomes(
+      topOutcomes,
+    )}.`;
+  }
+
+  return {
+    line,
+    topOutcomes,
+    sampleSize: recentEntries.length,
+  };
 }

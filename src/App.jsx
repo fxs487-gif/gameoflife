@@ -6,11 +6,14 @@ import {
   CompleteScreen,
   DailyObjectivesScreen,
   DayPauseScreen,
+  EnjoymentReflectionScreen,
   EmotionCheckInScreen,
   EveningReflectionScreen,
   FollowUpResultScreen,
   GapScreen,
   HomeScreen,
+  IntroPromiseScreen,
+  LandingPageScreen,
   LateIntentPromptScreen,
   LoginScreen,
   MirrorMomentScreen,
@@ -34,6 +37,7 @@ import {
   isEvening,
 } from './lib/date.js';
 import {
+  createEmptyState,
   clearState,
   createEmptyEntry,
   getEntry,
@@ -48,6 +52,7 @@ import {
   getBaselineComparison,
   getBaselineStatusMessage,
   getBaselineSummary,
+  getCelebrationSummary,
   getDayStatusCopy,
   getDayStatusHeadline,
   getDayStatus,
@@ -56,6 +61,12 @@ import {
   getMomentumSummary,
   getRecentAlignmentSummary,
   getHistoryDescription,
+  getEnjoymentPatternSummary,
+  getEntryOutcomeSummary,
+  getLensInterpretation,
+  getLensMetrics,
+  getLensPatternInsight,
+  getOutcomePatternInsight,
   getObjectiveSummary,
   getPatternSummary,
   getRepeatedOtherPattern,
@@ -65,6 +76,7 @@ import {
 } from './lib/history.js';
 import {
   getDistractionDisplay,
+  getEnjoymentDisplay,
   getRootCauseDisplay,
   getRootCauseOptions,
   getSuccessFactorDisplay,
@@ -74,6 +86,8 @@ import {
   NOTHING_SIGNIFICANT_LABEL,
 } from './lib/suggestions.js';
 import { EVENING_HOUR } from './options.js';
+
+const APP_ENTRY_SESSION_KEY = 'game-of-life-entry';
 
 function normalizeText(value) {
   return value.toLowerCase().replace(/[^a-z0-9\s/]/g, '').trim();
@@ -148,7 +162,12 @@ function hasObjectives(entry) {
 function hasObjectiveOutcomes(entry) {
   return (
     hasObjectives(entry) &&
-    entry.dailyObjectives.every((objective) => Boolean(objective.outcome))
+    entry.dailyObjectives.every(
+      (objective) =>
+        Boolean(objective.outcome) &&
+        Boolean(objective.fulfillmentRating) &&
+        Boolean(objective.enjoymentRating),
+    )
   );
 }
 
@@ -164,6 +183,53 @@ function getObjectiveScore(objectives) {
 
     return total;
   }, 0);
+}
+
+function hasEnjoymentReflection(entry) {
+  return Boolean(entry.enjoymentSignal || entry.enjoymentText?.trim());
+}
+
+function formatInlineList(items = []) {
+  if (items.length === 0) {
+    return '';
+  }
+
+  if (items.length === 1) {
+    return items[0];
+  }
+
+  if (items.length === 2) {
+    return `${items[0]} and ${items[1]}`;
+  }
+
+  return `${items.slice(0, -1).join(', ')}, and ${items.at(-1)}`;
+}
+
+function getWorkedTodayMoments(entry, summary, enjoymentDisplay) {
+  const moments = [];
+
+  if (enjoymentDisplay) {
+    moments.push({
+      label: 'What felt right',
+      value: enjoymentDisplay,
+    });
+  }
+
+  if (entry.noSignificantChallenges && entry.successFactor) {
+    moments.push({
+      label: 'What held the day together',
+      value: getSuccessFactorDisplay(entry.successFactor, entry.successNote),
+    });
+  } else if (summary.completedObjectives.length > 0) {
+    moments.push({
+      label: 'What still landed',
+      value: formatInlineList(
+        summary.completedObjectives.slice(0, 2).map((objective) => objective.label),
+      ),
+    });
+  }
+
+  return moments.slice(0, 2);
 }
 
 function getFlowScreen({ state, todayEntry, now, pendingFollowUpKey, override }) {
@@ -199,6 +265,10 @@ function getFlowScreen({ state, todayEntry, now, pendingFollowUpKey, override })
 
   if (!todayEntry.reflection) {
     return isEvening(now, EVENING_HOUR) ? 'evening' : 'day-pause';
+  }
+
+  if (!hasEnjoymentReflection(todayEntry)) {
+    return 'enjoyment';
   }
 
   if (!todayEntry.mirrorSeen) {
@@ -238,11 +308,11 @@ function getCurrentScreen({ state, flowScreen, dashboardDismissed, override }) {
   }
 
   if (!state.user?.name) {
-    return 'login';
+    return 'intro-promise';
   }
 
   if (!state.user.onboardingCompletedAt) {
-    return 'starting-point-intro';
+    return 'intro-promise';
   }
 
   if (
@@ -262,6 +332,7 @@ function getCurrentScreen({ state, flowScreen, dashboardDismissed, override }) {
 
 function getFrameClassName(screen, status) {
   const atmosphericScreens = new Set([
+    'landing',
     'home',
     'mirror',
     'gap',
@@ -286,10 +357,29 @@ export default function App() {
   const [screenOverride, setScreenOverride] = useState(null);
   const [selectedHistoryDateKey, setSelectedHistoryDateKey] = useState('');
   const [dashboardDismissed, setDashboardDismissed] = useState(false);
+  const [hasEnteredApp, setHasEnteredApp] = useState(() => {
+    try {
+      return window.sessionStorage.getItem(APP_ENTRY_SESSION_KEY) === 'true';
+    } catch {
+      return false;
+    }
+  });
 
   useEffect(() => {
     saveState(state);
   }, [state]);
+
+  useEffect(() => {
+    try {
+      if (hasEnteredApp) {
+        window.sessionStorage.setItem(APP_ENTRY_SESSION_KEY, 'true');
+      } else {
+        window.sessionStorage.removeItem(APP_ENTRY_SESSION_KEY);
+      }
+    } catch {
+      // Ignore session storage issues and keep the app usable.
+    }
+  }, [hasEnteredApp]);
 
   useEffect(() => {
     const timer = window.setInterval(() => {
@@ -317,9 +407,13 @@ export default function App() {
     : createEmptyEntry('');
   const baselineSummary = getBaselineSummary(state.entries, BASELINE_DAYS);
   const patternSummary = getPatternSummary(reviewableEntries);
+  const enjoymentPatternSummary = getEnjoymentPatternSummary(reviewableEntries);
+  const lensPatternInsight = getLensPatternInsight(reviewableEntries);
+  const outcomePatternInsight = getOutcomePatternInsight(reviewableEntries);
   const homeStateSummary = getHomeStateSummary(state.entries);
   const identityTrend = getIdentityTrend(state.entries);
   const recentAlignment = getRecentAlignmentSummary(state.entries);
+  const celebration = getCelebrationSummary(state.entries);
   const repeatedOtherPattern = getRepeatedOtherPattern(reviewableEntries);
   const currentOtherPattern = getRepeatedOtherPattern(state.entries);
   const flowScreen = getFlowScreen({
@@ -408,6 +502,9 @@ export default function App() {
   const rootCauseLabel = noSignificantChallenges
     ? getSuccessFactorDisplay(todayEntry.successFactor, todayEntry.successNote)
     : getRootCauseDisplay(todayEntry.rootCause, todayEntry.rootCauseOtherText);
+  const todayEnjoymentDisplay = hasEnjoymentReflection(todayEntry)
+    ? getEnjoymentDisplay(todayEntry.enjoymentSignal, todayEntry.enjoymentText)
+    : null;
   const formattedPrimaryDistraction = getDistractionDisplay(
     primaryDistraction,
     todayEntry.reflection?.notes ?? '',
@@ -419,6 +516,14 @@ export default function App() {
     ...objectiveSummary.partialObjectives,
     ...objectiveSummary.missedObjectives,
   ].map((objective) => objective.label);
+  const workedTodayMoments = getWorkedTodayMoments(
+    todayEntry,
+    objectiveSummary,
+    todayEnjoymentDisplay,
+  );
+  const todayOutcomeSummary = getEntryOutcomeSummary(todayEntry);
+  const todayLensMetrics = getLensMetrics(todayEntry);
+  const todayLensInterpretation = getLensInterpretation(todayEntry);
   const todayStatus = getDayStatus(todayEntry);
   const alignment = getAlignmentMetrics(todayEntry);
   const momentumSummary = getMomentumSummary(state.entries);
@@ -435,17 +540,19 @@ export default function App() {
       ? 'Start reflection'
       : 'Continue today';
   const frameStatus = currentScreen === 'home' ? homeStateSummary.status : todayStatus;
+  const activeScreen = hasEnteredApp ? currentScreen : 'landing';
+  const activeFrameStatus = hasEnteredApp ? frameStatus : homeStateSummary.status;
   const navigationKey = useMemo(
     () =>
       [
-        currentScreen,
-        currentScreen === 'recent-day-detail' ? selectedHistoryDateKey || 'none' : 'base',
-        currentScreen === 'recent-days' ? reviewableEntries.length : 'stable',
-        currentScreen === 'complete' ? todayEntry.completedAt || 'open' : 'flowing',
+        activeScreen,
+        activeScreen === 'recent-day-detail' ? selectedHistoryDateKey || 'none' : 'base',
+        activeScreen === 'recent-days' ? reviewableEntries.length : 'stable',
+        activeScreen === 'complete' ? todayEntry.completedAt || 'open' : 'flowing',
         todayKey,
       ].join(':'),
     [
-      currentScreen,
+      activeScreen,
       reviewableEntries.length,
       selectedHistoryDateKey,
       todayEntry.completedAt,
@@ -525,7 +632,13 @@ export default function App() {
       ...entry,
       dailyObjectives: dailyObjectives.map((objective) => ({
         ...objective,
+        outcomes: Array.isArray(objective.outcomes)
+          ? [...new Set(objective.outcomes.map((value) => value?.trim?.()).filter(Boolean))]
+          : [],
+        lenses: objective.lenses?.length ? objective.lenses : ['Deployment'],
         outcome: '',
+        fulfillmentRating: '',
+        enjoymentRating: '',
       })),
       objectiveScore: 0,
       objectiveMaxScore: 0,
@@ -537,6 +650,8 @@ export default function App() {
       intentionEnteredLate: lateEntry,
       reflection: null,
       noSignificantChallenges: false,
+      enjoymentSignal: '',
+      enjoymentText: '',
       mirrorSeen: false,
       gapSeen: false,
       emotion: '',
@@ -578,6 +693,8 @@ export default function App() {
         objectiveMaxScore: dailyObjectives.length * 2,
         reflection: null,
         noSignificantChallenges: false,
+        enjoymentSignal: '',
+        enjoymentText: '',
         mirrorSeen: false,
         gapSeen: false,
         emotion: '',
@@ -615,6 +732,8 @@ export default function App() {
         ...entry,
         reflection,
         noSignificantChallenges: nextNoSignificantChallenges,
+        enjoymentSignal: '',
+        enjoymentText: '',
         mirrorSeen: false,
         gapSeen: false,
         emotion: '',
@@ -636,6 +755,14 @@ export default function App() {
         ...nextEntry,
         dayStatus: getDayStatus(nextEntry),
       };
+    });
+    setScreenOverride(null);
+  }
+
+  function handleSaveEnjoyment({ enjoymentSignal, enjoymentText }) {
+    patchEntry(todayKey, {
+      enjoymentSignal,
+      enjoymentText,
     });
     setScreenOverride(null);
   }
@@ -726,10 +853,7 @@ export default function App() {
 
   function handleResetAllData() {
     clearState();
-    setState({
-      user: null,
-      entries: [],
-    });
+    setState(createEmptyState());
     setDashboardDismissed(false);
     setScreenOverride(null);
     setSelectedHistoryDateKey('');
@@ -742,6 +866,15 @@ export default function App() {
 
   function renderScreen() {
     switch (currentScreen) {
+      case 'intro-promise':
+        return (
+          <IntroPromiseScreen
+            onContinue={() =>
+              setScreenOverride(state.user?.name ? 'starting-point-intro' : 'login')
+            }
+          />
+        );
+
       case 'login':
         return (
           <LoginScreen
@@ -766,7 +899,7 @@ export default function App() {
                 },
               }));
               setDashboardDismissed(false);
-              setScreenOverride(null);
+              setScreenOverride('starting-point-intro');
             }}
           />
         );
@@ -935,6 +1068,15 @@ export default function App() {
           />
         );
 
+      case 'enjoyment':
+        return (
+          <EnjoymentReflectionScreen
+            initialSignal={todayEntry.enjoymentSignal}
+            initialText={todayEntry.enjoymentText}
+            onSubmit={handleSaveEnjoyment}
+          />
+        );
+
       case 'mirror':
         return (
           <MirrorMomentScreen
@@ -1005,6 +1147,7 @@ export default function App() {
           <SuggestedShiftScreen
             variant={noSignificantChallenges ? 'success' : 'challenge'}
             rootCauseLabel={rootCauseLabel}
+            workedMoments={workedTodayMoments}
             suggestion={suggestedShift}
             initialSource={todayEntry.shiftSource}
             initialCustomValue={
@@ -1070,7 +1213,10 @@ export default function App() {
           <RecentDaysScreen
             trendSummary={identityTrend.recentDaysLine}
             patternSummary={patternSummary}
+            enjoymentPatternSummary={enjoymentPatternSummary}
             repeatedOtherPattern={repeatedOtherPattern}
+            lensPatternInsight={lensPatternInsight}
+            outcomePatternInsight={outcomePatternInsight}
             entries={reviewableEntries.map((entry) => ({
               dateKey: entry.dateKey,
               dayLabel: getRelativeDayLabel(entry.dateKey, todayKey, yesterdayKey),
@@ -1088,7 +1234,10 @@ export default function App() {
               <RecentDaysScreen
                 trendSummary={identityTrend.recentDaysLine}
                 patternSummary={patternSummary}
+                enjoymentPatternSummary={enjoymentPatternSummary}
                 repeatedOtherPattern={repeatedOtherPattern}
+                lensPatternInsight={lensPatternInsight}
+                outcomePatternInsight={outcomePatternInsight}
                 entries={reviewableEntries.map((entry) => ({
                   dateKey: entry.dateKey,
                 dayLabel: getRelativeDayLabel(entry.dateKey, todayKey, yesterdayKey),
@@ -1111,6 +1260,8 @@ export default function App() {
             dateLabel={formatReadableDate(selectedHistoryEntry.dateKey)}
             status={getDayStatus(selectedHistoryEntry)}
             alignment={getAlignmentMetrics(selectedHistoryEntry)}
+            lensMetrics={getLensMetrics(selectedHistoryEntry)}
+            dayOutcomes={getEntryOutcomeSummary(selectedHistoryEntry).topOutcomes}
             objectives={selectedHistoryEntry.dailyObjectives ?? []}
             legacyIntention={selectedHistoryEntry.intentionText}
             morningSupport={getSupportPlanLabel(
@@ -1126,6 +1277,14 @@ export default function App() {
                   selectedHistoryEntry.reflection?.notes ?? '',
                 ),
             )}
+            enjoymentMoment={
+              hasEnjoymentReflection(selectedHistoryEntry)
+                ? getEnjoymentDisplay(
+                    selectedHistoryEntry.enjoymentSignal,
+                    selectedHistoryEntry.enjoymentText,
+                  )
+                : null
+            }
             rootCause={getRootCauseDisplay(
               selectedHistoryEntry.rootCause,
               selectedHistoryEntry.rootCauseOtherText,
@@ -1150,7 +1309,12 @@ export default function App() {
             dayStatusHeadline={getDayStatusHeadline(todayStatus)}
             dayStatusCopy={getDayStatusCopy(todayStatus)}
             alignment={alignment}
+            lensMetrics={todayLensMetrics}
+            lensInterpretation={todayLensInterpretation}
+            dailyOutcomeSummary={todayOutcomeSummary}
             trendLine={identityTrend.completionLine || momentumSummary}
+            celebration={celebration}
+            enjoymentMoment={todayEnjoymentDisplay}
             smallShift={todayEntry.smallShift}
             commitmentWindow={todayEntry.commitmentWindow}
             onViewHistory={hasHistory ? openRecentDays : null}
@@ -1162,9 +1326,13 @@ export default function App() {
   }
 
   return (
-    <div className={getFrameClassName(currentScreen, frameStatus)}>
+    <div className={getFrameClassName(activeScreen, activeFrameStatus)}>
       <div key={navigationKey} className="screen-transition-layer">
-        {renderScreen()}
+        {hasEnteredApp ? (
+          renderScreen()
+        ) : (
+          <LandingPageScreen onEnterApp={() => setHasEnteredApp(true)} />
+        )}
       </div>
     </div>
   );

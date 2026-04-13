@@ -1,6 +1,17 @@
 import { normalizeOtherFactorsInput } from './history.js';
 
-export const STORAGE_KEY = 'game-of-life-state-v1';
+export const STORAGE_KEY = 'game-of-life-state';
+export const SCHEMA_VERSION = 5;
+
+const LEGACY_STORAGE_KEYS = ['game-of-life-state-v1'];
+
+export function createEmptyState() {
+  return {
+    version: SCHEMA_VERSION,
+    user: null,
+    entries: [],
+  };
+}
 
 function createEmptyBaseline() {
   return {
@@ -36,25 +47,42 @@ function normalizeUser(user) {
   };
 }
 
-function normalizeObjective(objective, index) {
+function normalizeObjective(objective, index, useNeutralLensDefaults = false) {
   const label = objective?.label?.trim?.() ?? '';
 
   if (!label) {
     return null;
   }
 
+  const normalizedLenses = Array.isArray(objective?.lenses)
+    ? [...new Set(objective.lenses.filter(Boolean))]
+    : [];
+  const shouldUseNeutralRatings =
+    useNeutralLensDefaults && Boolean(objective?.outcome);
+  const normalizedOutcomes = Array.isArray(objective?.outcomes)
+    ? [...new Set(objective.outcomes.map((value) => value?.trim?.()).filter(Boolean))]
+    : [];
+
   return {
     id: objective?.id ?? `objective-${index + 1}`,
     label,
     section: objective?.section ?? 'Custom',
     custom: Boolean(objective?.custom),
+    outcomes: normalizedOutcomes,
+    lenses: normalizedLenses.length > 0 ? normalizedLenses : ['Deployment'],
     outcome: objective?.outcome ?? '',
+    fulfillmentRating:
+      objective?.fulfillmentRating ??
+      (shouldUseNeutralRatings ? 'Medium' : ''),
+    enjoymentRating:
+      objective?.enjoymentRating ??
+      (shouldUseNeutralRatings ? 'Medium' : ''),
     breakdownType: objective?.breakdownType ?? '',
     breakdownNote: objective?.breakdownNote ?? '',
   };
 }
 
-function normalizeEntry(entry) {
+function normalizeEntry(entry, useNeutralLensDefaults = false) {
   const normalized = {
     ...createEmptyEntry(entry.dateKey),
     ...entry,
@@ -67,7 +95,9 @@ function normalizeEntry(entry) {
     ),
     dailyObjectives: Array.isArray(normalized.dailyObjectives)
       ? normalized.dailyObjectives
-          .map((objective, index) => normalizeObjective(objective, index))
+          .map((objective, index) =>
+            normalizeObjective(objective, index, useNeutralLensDefaults),
+          )
           .filter(Boolean)
       : [],
   };
@@ -89,6 +119,8 @@ export function createEmptyEntry(dateKey) {
     intentionEnteredLate: false,
     reflection: null,
     noSignificantChallenges: false,
+    enjoymentSignal: '',
+    enjoymentText: '',
     mirrorSeen: false,
     gapSeen: false,
     emotion: '',
@@ -109,44 +141,68 @@ export function createEmptyEntry(dateKey) {
   };
 }
 
+function getStoredStatePayload() {
+  const keys = [STORAGE_KEY, ...LEGACY_STORAGE_KEYS];
+
+  for (const key of keys) {
+    const raw = window.localStorage.getItem(key);
+
+    if (raw) {
+      return {
+        raw,
+        key,
+      };
+    }
+  }
+
+  return null;
+}
+
+function normalizeState(parsed) {
+  const useNeutralLensDefaults = (parsed?.version ?? 0) < SCHEMA_VERSION;
+  const rawEntries = parsed?.entries ?? [];
+  const entries = Array.isArray(rawEntries)
+    ? rawEntries
+    : Object.values(rawEntries);
+  const normalizedEntries = entries
+    .filter((entry) => entry?.dateKey)
+    .map((entry) => normalizeEntry(entry, useNeutralLensDefaults));
+  const normalizedUser = normalizeUser(parsed?.user);
+  const migratedUser =
+    normalizedUser && !normalizedUser.onboardingCompletedAt && normalizedEntries.length > 0
+      ? {
+          ...normalizedUser,
+          onboardingCompletedAt:
+            normalizedUser.createdAt ||
+            normalizedEntries[0]?.completedAt ||
+            normalizedEntries[0]?.intentionEnteredAt ||
+            'migrated',
+        }
+      : normalizedUser;
+
+  return {
+    version: SCHEMA_VERSION,
+    user: migratedUser,
+    entries: normalizedEntries,
+  };
+}
+
 export function loadState() {
   if (typeof window === 'undefined') {
-    return { user: null, entries: [] };
+    return createEmptyState();
   }
 
   try {
-    const raw = window.localStorage.getItem(STORAGE_KEY);
+    const stored = getStoredStatePayload();
 
-    if (!raw) {
-      return { user: null, entries: [] };
+    if (!stored) {
+      return createEmptyState();
     }
 
-    const parsed = JSON.parse(raw);
-    const rawEntries = parsed.entries ?? [];
-    const entries = Array.isArray(rawEntries)
-      ? rawEntries
-      : Object.values(rawEntries);
-    const normalizedEntries = entries
-      .filter((entry) => entry?.dateKey)
-      .map(normalizeEntry);
-    const normalizedUser = normalizeUser(parsed.user);
-
-    return {
-      user:
-        normalizedUser && !normalizedUser.onboardingCompletedAt && normalizedEntries.length > 0
-          ? {
-              ...normalizedUser,
-              onboardingCompletedAt:
-                normalizedUser.createdAt ||
-                normalizedEntries[0]?.completedAt ||
-                normalizedEntries[0]?.intentionEnteredAt ||
-                'migrated',
-            }
-          : normalizedUser,
-      entries: normalizedEntries,
-    };
+    const parsed = JSON.parse(stored.raw);
+    return normalizeState(parsed);
   } catch {
-    return { user: null, entries: [] };
+    return createEmptyState();
   }
 }
 
@@ -157,10 +213,20 @@ export function saveState(state) {
 
   if (!state.user && (state.entries ?? []).length === 0) {
     window.localStorage.removeItem(STORAGE_KEY);
+    LEGACY_STORAGE_KEYS.forEach((key) => window.localStorage.removeItem(key));
     return;
   }
 
-  window.localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+  const normalizedState = {
+    version: SCHEMA_VERSION,
+    user: normalizeUser(state.user),
+    entries: Array.isArray(state.entries)
+      ? state.entries.map(normalizeEntry)
+      : [],
+  };
+
+  window.localStorage.setItem(STORAGE_KEY, JSON.stringify(normalizedState));
+  LEGACY_STORAGE_KEYS.forEach((key) => window.localStorage.removeItem(key));
 }
 
 export function clearState() {
@@ -169,6 +235,7 @@ export function clearState() {
   }
 
   window.localStorage.removeItem(STORAGE_KEY);
+  LEGACY_STORAGE_KEYS.forEach((key) => window.localStorage.removeItem(key));
 }
 
 export function getEntry(entries, dateKey) {
