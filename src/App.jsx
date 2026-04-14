@@ -1,4 +1,5 @@
 import { useEffect, useLayoutEffect, useMemo, useState } from 'react';
+import { SpeedInsights } from '@vercel/speed-insights/react';
 import {
   BaselineRevealScreen,
   CommitmentCheckScreen,
@@ -1326,14 +1327,17 @@ export default function App() {
   }
 
   return (
-    <div className={getFrameClassName(activeScreen, activeFrameStatus)}>
-      <div key={navigationKey} className="screen-transition-layer">
-        {hasEnteredApp ? (
-          renderScreen()
-        ) : (
-          <LandingPageScreen onEnterApp={() => setHasEnteredApp(true)} />
-        )}
+    <>
+      <div className={getFrameClassName(activeScreen, activeFrameStatus)}>
+        <div key={navigationKey} className="screen-transition-layer">
+          {hasEnteredApp ? (
+            renderScreen()
+          ) : (
+            <LandingPageScreen onEnterApp={() => setHasEnteredApp(true)} />
+          )}
+        </div>
       </div>
-    </div>
+      <SpeedInsights />
+    </>
   );
 }
